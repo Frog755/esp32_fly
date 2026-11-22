@@ -1,0 +1,32 @@
+# ===== ESP32-S3 硬件匹配配置 =====
+# 实测硬件 (esptool 探测):
+#   Flash : 16MB, quad 4 data lines, 3.3V
+#   PSRAM : 8MB (AP_3v3)
+#   芯片  : ESP32-S3 QFN56 rev v0.2, 双核 240MHz, WiFi + BLE5
+
+# ---------- Flash 大小: 2MB -> 16MB ----------
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
+
+# ---------- Flash 模式: DIO -> QIO (4线, 读取提速约一倍) ----------
+# 注: esptool 烧录日志仍显示 dio 属正常, bootloader 启动后自行切到 quad
+CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+
+# ---------- 开启 8MB PSRAM ----------
+# 关键：这颗是 AP Memory (AP_3v3) 8MB 芯片，必须用 OCTAL 模式
+# 之前误配成 QUAD 导致 "PSRAM chip is not connected, or wrong PSRAM line mode"
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_TYPE_AUTO=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_USE_MALLOC=y
+
+# ---------- 分区表: singleapp_large (app 分区扩大到 ~1.5MB+) ----------
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
+
+# ---------- CPU 主频: 160 -> 240 MHz ----------
+# 理由：不是算力不够（8KB 策略跑 100Hz 绰绰有余），而是降低多任务并发时的时序抖动。
+# RL(100Hz) + PID(1kHz) + 混控(4kHz) 三任务叠加，主频高对抖动更宽容。
+# 代价：功耗和发热上升。电池供电场景若发热明显可退回 160。
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+

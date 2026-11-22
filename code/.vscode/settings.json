@@ -1,0 +1,5 @@
+{
+    "idf.currentSetup": "/home/frog/.espressif/v6.1/esp-idf",
+    "cmake.sourceDirectory": "/home/frog/embodied_ai/esp32_fly/code/connection_test",
+    "idf.port": "/dev/ttyACM0"
+}

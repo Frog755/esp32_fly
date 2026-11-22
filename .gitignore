@@ -1,0 +1,35 @@
+# ===== Python =====
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# ===== RL 训练产物（体积大，约 1.1G，不入库）=====
+RL/models/*
+# 保留体积很小的查表数据（Stage 13 归档，固件 flip_table.h 的来源）
+!RL/models/flip_table_3d.npz
+!RL/models/flip_table_axis_x.npz
+RL/tb_logs/
+# 评测原始明细（每份 2~6MB，共约 45MB）不入库，保留 summary.md / 图表 / 小 json
+RL/results/**/eval_result.json
+*.mp4
+*.zip
+*.pt
+*.pth
+*.ckpt
+
+# ===== ESP-IDF 固件构建产物 =====
+code/**/build/
+code/**/managed_components/
+code/**/dependencies.lock
+code/**/sdkconfig.old
+code/**/sdkconfig.backup.*
+code/logs/
+
+# 宿主机编译出的测试可执行文件
+code/connection_test/main/test_flip_table_c
+code/connection_test/main/test_recovery_expert6_c
+
+# ===== 杂项 =====
+*.bak*
+*.log
+.DS_Store

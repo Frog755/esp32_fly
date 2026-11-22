@@ -1,0 +1,10 @@
+gymnasium>=0.29.1
+stable-baselines3>=2.2.1
+torch>=2.0.0
+numpy>=1.23.0
+scipy>=1.10.0
+tensorboard>=2.14.0
+matplotlib>=3.7.0
+h5py>=3.9.0
+l2f>=2.0.18
+foundation-policy>=1.0.1

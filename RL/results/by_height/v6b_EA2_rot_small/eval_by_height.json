@@ -1,0 +1,226 @@
+{
+  "model": "models/v6b_EA2_rot_small/model.zip",
+  "episodes_per_difficulty": 1000,
+  "seed_set": "[20261029, 20262029)",
+  "height_bins": [
+    "1.5-1.8m",
+    "1.8-2.1m",
+    "2.1-2.4m",
+    "2.4-2.6m"
+  ],
+  "results": {
+    "0.3": {
+      "1.5-1.8m": {
+        "n": 302,
+        "success": 189,
+        "rate": 0.6258,
+        "ci95": [
+          0.57,
+          0.6785
+        ],
+        "outcome_counts": {
+          "out_of_bounds": 10,
+          "timeout_unstable": 40,
+          "crash_upright": 27,
+          "success": 189,
+          "crash_not_upright": 36
+        }
+      },
+      "1.8-2.1m": {
+        "n": 300,
+        "success": 190,
+        "rate": 0.6333,
+        "ci95": [
+          0.5774,
+          0.6859
+        ],
+        "outcome_counts": {
+          "out_of_bounds": 17,
+          "timeout_unstable": 33,
+          "crash_upright": 23,
+          "success": 190,
+          "crash_not_upright": 37
+        }
+      },
+      "2.1-2.4m": {
+        "n": 284,
+        "success": 159,
+        "rate": 0.5599,
+        "ci95": [
+          0.5017,
+          0.6164
+        ],
+        "outcome_counts": {
+          "out_of_bounds": 19,
+          "timeout_unstable": 49,
+          "crash_upright": 18,
+          "success": 159,
+          "crash_not_upright": 39
+        }
+      },
+      "2.4-2.6m": {
+        "n": 114,
+        "success": 73,
+        "rate": 0.6404,
+        "ci95": [
+          0.549,
+          0.7225
+        ],
+        "outcome_counts": {
+          "out_of_bounds": 7,
+          "timeout_unstable": 13,
+          "crash_upright": 6,
+          "success": 73,
+          "crash_not_upright": 15
+        }
+      },
+      "_total": {
+        "n": 1000,
+        "success": 611,
+        "rate": 0.611
+      }
+    },
+    "0.7": {
+      "1.5-1.8m": {
+        "n": 302,
+        "success": 126,
+        "rate": 0.4172,
+        "ci95": [
+          0.363,
+          0.4735
+        ],
+        "outcome_counts": {
+          "out_of_bounds": 20,
+          "timeout_unstable": 29,
+          "crash_upright": 27,
+          "success": 126,
+          "crash_not_upright": 100
+        }
+      },
+      "1.8-2.1m": {
+        "n": 300,
+        "success": 132,
+        "rate": 0.44,
+        "ci95": [
+          0.3849,
+          0.4966
+        ],
+        "outcome_counts": {
+          "out_of_bounds": 24,
+          "timeout_unstable": 29,
+          "crash_upright": 17,
+          "success": 132,
+          "crash_not_upright": 98
+        }
+      },
+      "2.1-2.4m": {
+        "n": 284,
+        "success": 127,
+        "rate": 0.4472,
+        "ci95": [
+          0.3904,
+          0.5053
+        ],
+        "outcome_counts": {
+          "out_of_bounds": 20,
+          "timeout_unstable": 33,
+          "crash_upright": 19,
+          "success": 127,
+          "crash_not_upright": 85
+        }
+      },
+      "2.4-2.6m": {
+        "n": 114,
+        "success": 57,
+        "rate": 0.5,
+        "ci95": [
+          0.4097,
+          0.5903
+        ],
+        "outcome_counts": {
+          "out_of_bounds": 12,
+          "timeout_unstable": 8,
+          "crash_upright": 6,
+          "success": 57,
+          "crash_not_upright": 31
+        }
+      },
+      "_total": {
+        "n": 1000,
+        "success": 442,
+        "rate": 0.442
+      }
+    },
+    "1.0": {
+      "1.5-1.8m": {
+        "n": 302,
+        "success": 69,
+        "rate": 0.2285,
+        "ci95": [
+          0.1847,
+          0.2791
+        ],
+        "outcome_counts": {
+          "out_of_bounds": 15,
+          "timeout_unstable": 21,
+          "crash_upright": 29,
+          "success": 69,
+          "crash_not_upright": 168
+        }
+      },
+      "1.8-2.1m": {
+        "n": 300,
+        "success": 87,
+        "rate": 0.29,
+        "ci95": [
+          0.2416,
+          0.3437
+        ],
+        "outcome_counts": {
+          "out_of_bounds": 20,
+          "timeout_unstable": 14,
+          "crash_upright": 25,
+          "success": 87,
+          "crash_not_upright": 154
+        }
+      },
+      "2.1-2.4m": {
+        "n": 284,
+        "success": 82,
+        "rate": 0.2887,
+        "ci95": [
+          0.2391,
+          0.344
+        ],
+        "outcome_counts": {
+          "out_of_bounds": 22,
+          "timeout_unstable": 21,
+          "crash_upright": 22,
+          "success": 82,
+          "crash_not_upright": 137
+        }
+      },
+      "2.4-2.6m": {
+        "n": 114,
+        "success": 39,
+        "rate": 0.3421,
+        "ci95": [
+          0.2614,
+          0.4331
+        ],
+        "outcome_counts": {
+          "out_of_bounds": 13,
+          "timeout_unstable": 5,
+          "crash_upright": 4,
+          "success": 39,
+          "crash_not_upright": 53
+        }
+      },
+      "_total": {
+        "n": 1000,
+        "success": 277,
+        "rate": 0.277
+      }
+    }
+  }
+}
