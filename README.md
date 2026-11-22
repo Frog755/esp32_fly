@@ -155,7 +155,7 @@ esp32_fly/
 
 交互查看：`./run_visualizer.sh v8v9`（左红 v8 / 右青 v9，`1`~`6` 切换、`B` 随机、空格暂停、`S` 慢放）。
 查看器采用"后台进程预计算整段轨迹 + 窗口纯回放"，60~70 fps 流畅播放；随机通道需先计算约 10 s。
-导出：`./run_visualizer.sh export-v8v9` → `RL/results/stage19/v8_vs_v9_6cases.mp4`（约 80 s、0.5× 慢放，视频不入库）与曲线图。
+对比视频（76 s、0.5× 慢放）：[GitHub Release 下载 v8_vs_v9_6cases.mp4](https://github.com/Frog755/esp32_fly/releases/download/stage19-v8-vs-v9/v8_vs_v9_6cases.mp4)（视频不入库；本地可用 `./run_visualizer.sh export-v8v9` 重新生成到 `RL/results/stage19/`，同时导出曲线图）。
 
 ---
 
