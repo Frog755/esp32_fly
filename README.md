@@ -34,6 +34,7 @@ esp32_fly/
 ├── code/                    # 嵌入式飞控工程 (ESP-IDF C/C++)
 │   └── connection_test/main/recovery_expert{6,7,8}.h  # 各代控制器纯 C 部署头文件
 ├── RL/
+│   ├── README.md            # ★ v9 主线链路与脚本地图（先看这个）
 │   ├── env/                 # 动力学引擎与任务环境
 │   │   ├── quad_sim_vec.py      # 批量刚体动力学（180k quad-steps/s，对拍误差 1.8e-12）
 │   │   ├── vec_recovery_env.py  # 任务环境基类（奖励/观测器/终止/钩子）
@@ -43,15 +44,10 @@ esp32_fly/
 │   │   ├── vec_expert6_env.py   # v6 提前交接闭环 (92.4%)
 │   │   ├── vec_expert5_env.py   # v5 最小时间 bang-bang (84.0%)
 │   │   ├── vec_expert_env.py    # v3 三段式 (80.5%)
-│   │   ├── vec_residual_env.py  # PD+门控残差（RL 路线）
-│   │   ├── vec_rate_env.py      # 语义动作层（RL 路线）
 │   │   ├── noise_wrap.py        # 传感器噪声包装（控制器读带噪测量，仿真用真值；Stage 18）
 │   │   ├── att_est_wrap.py      # IMU 原始数据 + Mahony 姿态估计器包装（纯陀螺/普通/门控；Stage 18）
 │   │   └── yao_kun_params.py    # 耀坤 K1.0 实机参数台账
-│   ├── scripts/             # 求解器与训练脚本
-│   │   ├── flip_lto.py          # 单轴离线轨迹优化（对拍解析解 0.9%）
-│   │   ├── flip_table2.py       # 电机分组建表管线
-│   │   ├── flip_lto3d.py        # 三轴严格四元数求解器
+│   ├── scripts/             # 主线评测 / 调参 / 验证 / 可视化脚本
 │   │   ├── verify_expert8_c_equivalence.py  # C vs Python 逐位等价性验证
 │   │   ├── eval_all_controllers.py          # 各代控制器 512 通道横向对比总榜
 │   │   ├── eval_recovery_metrics.py         # 掉高量 / 翻正耗时 / 稳悬耗时专项评测（Stage 17）
@@ -59,7 +55,8 @@ esp32_fly/
 │   │   ├── eval_noise.py / eval_noise_att.py / eval_att_est.py  # 噪声分级、姿态误差拆分、真实估计器复测
 │   │   ├── visualize_recovery.py            # MuJoCo 3D 交互查看器（配合 run_visualizer.sh）
 │   │   ├── visualize_v8_v9.py               # v8 vs v9 同工况并排 3D 对比：交互回放 / 导出视频 / 高度曲线图（Stage 19）
-│   │   └── train_*.py           # 各架构训练脚本（保留作对照）
+│   │   └── verify_expert{6,7}_c_equivalence.py 等历代校验与旧版可视化
+│   ├── legacy/              # 历史实验（RL 训练 / Stage 13 查表 / Raptor / 诊断），见 RL/legacy/README.md
 │   ├── models/              # checkpoints 与查表数据
 │   └── docs/                # 实验报告与交接文档
 ├── docs/                    # 硬件文档
@@ -220,8 +217,7 @@ cd RL
 python3 scripts/eval_all_controllers.py          # 各代控制器 512 通道横向对比总榜
 python3 scripts/eval_recovery_metrics.py --ctrl vec_expert9_env:VecExpert9 vec_expert8_env:VecExpert8  # 掉高/耗时专项
 python3 scripts/verify_expert8_c_equivalence.py  # v8 C 头文件 vs Python 逐位等价校验
-python3 scripts/flip_lto.py           # 单轴求解器三道 sanity 检查
-python3 scripts/flip_table2.py        # 电机分组参数化建表测试
+python3 legacy/flip_table/flip_lto.py      # （历史）Stage 13 单轴求解器 sanity 检查
 python3 -c "import scipy; print(scipy.__version__)"   # 需 1.15+
 ```
 

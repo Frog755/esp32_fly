@@ -1,6 +1,6 @@
 # 项目实时状态看板 (STATE.md)
 
-> 更新：2026-11-22 ｜ 阶段：Stage 19 完成（v8 vs v9 同工况 MuJoCo 对比可视化）→ 下一步：移植 v9 + 门控 Mahony 到 C → 真机部署
+> 更新：2026-11-22 ｜ 阶段：Stage 20 完成（历史脚本归档到 RL/legacy/，主线脚本地图见 RL/README.md）→ 下一步：移植 v9 + 门控 Mahony 到 C → 真机部署
 
 ## 目标与达成
 - Stage 17 目标：减少回正掉高、缩短回正耗时 → **v9**（8 种子 × 512 均值，含 5 个留出种子）：
@@ -29,6 +29,8 @@
 - 含偏航完全静止 P90 0.99 → 1.31s（推力优先给升力），可用 `YAW_RES` 换回偏航余量。
 
 ## 核心资产
+> 主线链路与全部脚本地图：`RL/README.md`；历史实验（RL 训练 / 查表 / Raptor / 诊断）：`RL/legacy/README.md`。
+
 - `RL/env/vec_expert9_env.py` ★ 仿真冠军 v9（默认参数即最终版，同 `RL/results/stage17/v9_final_ctrl.json`）
 - `RL/env/att_est_wrap.py` IMU 原始数据 + Mahony（纯陀螺 / 普通 / 门控）姿态估计器包装
 - `RL/env/noise_wrap.py` 传感器噪声包装（控制器读带噪测量，仿真用真值）

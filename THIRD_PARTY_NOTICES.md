@@ -13,7 +13,7 @@
   - `RL/data/rltools_gru_operations_generic.h`
   - `code/connection_test/main/raptor_policy.h`
   - `code/connection_test/main/raptor_weights.h`
-  - `RL/scripts/raptor_policy_np.py`、`RL/scripts/raptor_ref.py`（参考实现移植）
+  - `RL/legacy/raptor/raptor_policy_np.py`、`RL/legacy/raptor/raptor_ref.py`（参考实现移植）
 
 ```
 MIT License

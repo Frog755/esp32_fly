@@ -1,0 +1,503 @@
+{
+ "legacy/rl_v0_ppo/train_ppo.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {
+   "_RL_DIR": "/home/frog/embodied_ai/esp32_fly/RL",
+   "_SIM_DIR": "/home/frog/embodied_ai/esp32_fly/RL/env"
+  },
+  "local_mods": [
+   "quad_sim_fast_v2"
+  ]
+ },
+ "legacy/rl_v0_ppo/eval.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {
+   "_RL_DIR": "/home/frog/embodied_ai/esp32_fly/RL"
+  },
+  "local_mods": [
+   "quad_sim_fast_v2"
+  ]
+ },
+ "legacy/rl_v0_ppo/play.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {
+   "_RL_DIR": "/home/frog/embodied_ai/esp32_fly/RL"
+  },
+  "local_mods": [
+   "quad_sim_fast_v2"
+  ]
+ },
+ "legacy/rl_v0_ppo/eval_phase.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {
+   "_RL_DIR": "/home/frog/embodied_ai/esp32_fly/RL"
+  },
+  "local_mods": [
+   "eval",
+   "quad_sim_fast_v2"
+  ]
+ },
+ "legacy/rl_v0_ppo/eval_hierarchical.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {
+   "_RL_DIR": "/home/frog/embodied_ai/esp32_fly/RL"
+  },
+  "local_mods": [
+   "eval",
+   "quad_sim_fast_v2"
+  ]
+ },
+ "legacy/rl_v0_ppo/eval_by_height.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {
+   "_RL_DIR": "/home/frog/embodied_ai/esp32_fly/RL"
+  },
+  "local_mods": [
+   "eval",
+   "quad_sim_fast_v2"
+  ]
+ },
+ "legacy/rl_v0_ppo/report.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {
+   "_RL_DIR": "/home/frog/embodied_ai/esp32_fly/RL",
+   "RESULTS_DIR": "/home/frog/embodied_ai/esp32_fly/RL/results"
+  },
+  "local_mods": []
+ },
+ "legacy/rl_v0_ppo/compare_tb.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {
+   "_RL_DIR": "/home/frog/embodied_ai/esp32_fly/RL"
+  },
+  "local_mods": []
+ },
+ "legacy/rl_v0_ppo/monitor_training.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {},
+  "local_mods": []
+ },
+ "legacy/rl_v0_ppo/export_policy_c.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {},
+  "local_mods": []
+ },
+ "legacy/rl_v0_ppo/quad_sim.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {},
+  "local_mods": []
+ },
+ "legacy/rl_v0_ppo/quad_sim_fast_v2_v28_backup.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {},
+  "local_mods": []
+ },
+ "legacy/rl_vec/train_planA.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {
+   "HERE": "/home/frog/embodied_ai/esp32_fly/RL/scripts",
+   "OUT": "/home/frog/embodied_ai/esp32_fly/RL/scripts/../models/planA_v4"
+  },
+  "local_mods": [
+   "quad_sim_fast_v2",
+   "quad_sim_vec",
+   "vec_recovery_env",
+   "yao_kun_params"
+  ]
+ },
+ "legacy/rl_vec/train_sac.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {
+   "HERE": "/home/frog/embodied_ai/esp32_fly/RL/scripts",
+   "OUT": "/home/frog/embodied_ai/esp32_fly/RL/scripts/../models/sac_v1"
+  },
+  "local_mods": [
+   "quad_sim_fast_v2",
+   "quad_sim_vec",
+   "vec_recovery_env",
+   "yao_kun_params"
+  ]
+ },
+ "legacy/rl_vec/train_residual.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {
+   "HERE": "/home/frog/embodied_ai/esp32_fly/RL/scripts",
+   "OUT": "/home/frog/embodied_ai/esp32_fly/RL/scripts/../models/residual_v1"
+  },
+  "local_mods": [
+   "quad_sim_fast_v2",
+   "quad_sim_vec",
+   "vec_recovery_env",
+   "vec_residual_env",
+   "yao_kun_params"
+  ]
+ },
+ "legacy/rl_vec/train_residual_anchored.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {
+   "HERE": "/home/frog/embodied_ai/esp32_fly/RL/scripts",
+   "DATA": "/home/frog/embodied_ai/esp32_fly/RL/scripts/../models/anchor_dataset.npz",
+   "OUT": "/home/frog/embodied_ai/esp32_fly/RL/scripts/../models/residual_anchored"
+  },
+  "local_mods": [
+   "quad_sim_fast_v2",
+   "quad_sim_vec",
+   "vec_recovery_env",
+   "vec_residual_env",
+   "yao_kun_params"
+  ]
+ },
+ "legacy/rl_vec/train_residual_omegafirst.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {
+   "HERE": "/home/frog/embodied_ai/esp32_fly/RL/scripts",
+   "DATA": "/home/frog/embodied_ai/esp32_fly/RL/scripts/../models/anchor_dataset.npz",
+   "OUT": "/home/frog/embodied_ai/esp32_fly/RL/scripts/../models/residual_omegafirst"
+  },
+  "local_mods": [
+   "quad_sim_fast_v2",
+   "quad_sim_vec",
+   "train_residual_anchored",
+   "vec_recovery_env",
+   "vec_residual_env",
+   "yao_kun_params"
+  ]
+ },
+ "legacy/rl_vec/train_rate.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {
+   "HERE": "/home/frog/embodied_ai/esp32_fly/RL/scripts",
+   "OUT": "/home/frog/embodied_ai/esp32_fly/RL/scripts/../models/rate_v1"
+  },
+  "local_mods": [
+   "quad_sim_fast_v2",
+   "quad_sim_vec",
+   "vec_rate_env",
+   "vec_recovery_env",
+   "yao_kun_params"
+  ]
+ },
+ "legacy/rl_vec/train_rate_anchored.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {
+   "HERE": "/home/frog/embodied_ai/esp32_fly/RL/scripts",
+   "DATA": "/home/frog/embodied_ai/esp32_fly/RL/scripts/../models/anchor_dataset_rate.npz",
+   "OUT": "/home/frog/embodied_ai/esp32_fly/RL/scripts/../models/rate_sil"
+  },
+  "local_mods": [
+   "quad_sim_fast_v2",
+   "quad_sim_vec",
+   "train_residual_anchored",
+   "vec_rate_env",
+   "vec_recovery_env",
+   "vec_residual_env",
+   "yao_kun_params"
+  ]
+ },
+ "legacy/rl_vec/train_expert_sil.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {
+   "HERE": "/home/frog/embodied_ai/esp32_fly/RL/scripts",
+   "DATA": "/home/frog/embodied_ai/esp32_fly/RL/scripts/../models/anchor_dataset_expert.npz",
+   "OUT": "/home/frog/embodied_ai/esp32_fly/RL/scripts/../models/expert_sil"
+  },
+  "local_mods": [
+   "quad_sim_fast_v2",
+   "quad_sim_vec",
+   "train_residual_anchored",
+   "vec_expert_env",
+   "vec_expert_residual_env",
+   "vec_recovery_env",
+   "vec_residual_env",
+   "yao_kun_params"
+  ]
+ },
+ "legacy/rl_vec/collect_anchor_data.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {
+   "HERE": "/home/frog/embodied_ai/esp32_fly/RL/scripts",
+   "CKPT": "/home/frog/embodied_ai/esp32_fly/RL/scripts/../models/residual_v1/model_2M.zip",
+   "OUT": "/home/frog/embodied_ai/esp32_fly/RL/scripts/../models/anchor_dataset.npz"
+  },
+  "local_mods": [
+   "quad_sim_fast_v2",
+   "quad_sim_vec",
+   "vec_recovery_env",
+   "vec_residual_env",
+   "yao_kun_params"
+  ]
+ },
+ "legacy/rl_vec/collect_anchor_data_expert.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {
+   "HERE": "/home/frog/embodied_ai/esp32_fly/RL/scripts",
+   "OUT": "/home/frog/embodied_ai/esp32_fly/RL/scripts/../models/anchor_dataset_expert.npz"
+  },
+  "local_mods": [
+   "quad_sim_fast_v2",
+   "quad_sim_vec",
+   "vec_expert_env",
+   "vec_expert_residual_env",
+   "vec_recovery_env",
+   "yao_kun_params"
+  ]
+ },
+ "legacy/rl_vec/eval_residual.py": {
+  "status": "fail",
+  "err": "IndexError: list index out of range",
+  "paths": {},
+  "local_mods": [
+   "quad_sim_fast_v2",
+   "quad_sim_vec",
+   "vec_recovery_env",
+   "vec_residual_env",
+   "yao_kun_params"
+  ]
+ },
+ "legacy/rl_vec/eval_planA_v2.py": {
+  "status": "fail",
+  "err": "IndexError: list index out of range",
+  "paths": {},
+  "local_mods": [
+   "quad_sim_fast_v2",
+   "quad_sim_vec",
+   "vec_recovery_env",
+   "yao_kun_params"
+  ]
+ },
+ "legacy/rl_vec/export_tb_plots.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {
+   "_ROOT": "/home/frog/embodied_ai/esp32_fly/RL",
+   "_OUT": "/home/frog/embodied_ai/esp32_fly/RL/output"
+  },
+  "local_mods": []
+ },
+ "legacy/rl_vec/vec_residual_env.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {},
+  "local_mods": [
+   "quad_sim_fast_v2",
+   "quad_sim_vec",
+   "vec_recovery_env",
+   "yao_kun_params"
+  ]
+ },
+ "legacy/rl_vec/vec_rate_env.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {},
+  "local_mods": [
+   "quad_sim_fast_v2",
+   "quad_sim_vec",
+   "vec_recovery_env",
+   "yao_kun_params"
+  ]
+ },
+ "legacy/rl_vec/vec_expert_residual_env.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {},
+  "local_mods": [
+   "quad_sim_fast_v2",
+   "quad_sim_vec",
+   "vec_expert_env",
+   "vec_recovery_env",
+   "yao_kun_params"
+  ]
+ },
+ "legacy/flip_table/flip_lto.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {},
+  "local_mods": []
+ },
+ "legacy/flip_table/flip_lto3d.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {},
+  "local_mods": [
+   "quad_sim_fast_v2",
+   "quad_sim_vec",
+   "vec_expert5_env",
+   "vec_recovery_env",
+   "yao_kun_params"
+  ]
+ },
+ "legacy/flip_table/flip_table.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {
+   "HERE": "/home/frog/embodied_ai/esp32_fly/RL/scripts"
+  },
+  "local_mods": [
+   "quad_sim_fast_v2",
+   "yao_kun_params"
+  ]
+ },
+ "legacy/flip_table/flip_table2.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {
+   "HERE": "/home/frog/embodied_ai/esp32_fly/RL/scripts"
+  },
+  "local_mods": [
+   "quad_sim_fast_v2",
+   "yao_kun_params"
+  ]
+ },
+ "legacy/flip_table/build_flip_table3d.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {},
+  "local_mods": [
+   "flip_lto3d",
+   "quad_sim_fast_v2",
+   "quad_sim_vec",
+   "vec_expert5_env",
+   "vec_recovery_env",
+   "yao_kun_params"
+  ]
+ },
+ "legacy/flip_table/export_table_c.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {},
+  "local_mods": []
+ },
+ "legacy/flip_table/eval_table_vs_v5.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {},
+  "local_mods": [
+   "quad_sim_fast_v2",
+   "quad_sim_vec",
+   "vec_expert5_env",
+   "vec_recovery_env",
+   "vec_table_expert_env",
+   "yao_kun_params"
+  ]
+ },
+ "legacy/raptor/raptor_ref.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {},
+  "local_mods": []
+ },
+ "legacy/raptor/raptor_policy_np.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {
+   "RAPTOR_DEFAULT": "/home/frog/embodied_ai/esp32_fly/code/connection_test/main/raptor_weights.h"
+  },
+  "local_mods": []
+ },
+ "legacy/raptor/test_raptor_in_oursim.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {
+   "RAPTOR_DEFAULT": "/home/frog/embodied_ai/esp32_fly/code/connection_test/main/raptor_weights.h"
+  },
+  "local_mods": [
+   "quad_sim_fast_v2",
+   "raptor_policy_np"
+  ]
+ },
+ "legacy/diagnose/diagnose.py": {
+  "status": "fail",
+  "err": "ModuleNotFoundError: No module named 'quad_sim_fast'",
+  "paths": {},
+  "local_mods": []
+ },
+ "legacy/diagnose/diagnose_e2e_on_handoff.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {
+   "_RL_DIR": "/home/frog/embodied_ai/esp32_fly/RL"
+  },
+  "local_mods": [
+   "quad_sim_fast_v2"
+  ]
+ },
+ "legacy/diagnose/diagnose_handoff_split.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {
+   "_RL_DIR": "/home/frog/embodied_ai/esp32_fly/RL"
+  },
+  "local_mods": [
+   "quad_sim_fast_v2"
+  ]
+ },
+ "legacy/diagnose/diagnose_handoff_timing.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {
+   "_RL_DIR": "/home/frog/embodied_ai/esp32_fly/RL"
+  },
+  "local_mods": [
+   "quad_sim_fast_v2"
+  ]
+ },
+ "legacy/diagnose/diagnose_omega_curve.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {
+   "_RL_DIR": "/home/frog/embodied_ai/esp32_fly/RL"
+  },
+  "local_mods": [
+   "quad_sim_fast_v2"
+  ]
+ },
+ "legacy/diagnose/diagnose_pd_sweep.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {
+   "_RL_DIR": "/home/frog/embodied_ai/esp32_fly/RL"
+  },
+  "local_mods": [
+   "quad_sim_fast_v2"
+  ]
+ },
+ "legacy/diagnose/baseline_recovery.py": {
+  "status": "fail",
+  "err": "ModuleNotFoundError: No module named 'l2f'",
+  "paths": {},
+  "local_mods": []
+ },
+ "legacy/diagnose/eval_pd_e2e.py": {
+  "status": "ok",
+  "err": "",
+  "paths": {
+   "_RL_DIR": "/home/frog/embodied_ai/esp32_fly/RL"
+  },
+  "local_mods": [
+   "eval",
+   "quad_sim_fast_v2"
+  ]
+ }
+}

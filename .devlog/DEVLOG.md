@@ -504,3 +504,31 @@ Mahony：q̇ = ½ q ⊗ (ω_meas + Kp·gate·(â × v̂))。符号自检：30° 
 
 **资产**：`RL/scripts/visualize_v8_v9.py`、`run_visualizer.sh`（新增 `v8v9` / `export-v8v9`）、`RL/results/stage19/v8_vs_v9_curves.png`
 （对比视频 `v8_vs_v9_6cases.mp4` 按 .gitignore 不入库，可用 `./run_visualizer.sh export-v8v9` 重新生成）。
+
+---
+
+## 2026-11-22 · Stage 20: 脚本整理 —— 历史实验归档到 RL/legacy/
+
+**背景**：用户反馈脚本太多分不清，并问 v9 的"训练链路"。澄清：v9 是手写规则控制器（bang-bang + PD），不是 RL 也不是 MPC；
+"训练" = 物理分析写控制律 + 512 通道仿真扫参数。PPO / 奖励函数属于已被否定的 RL 路线，只因 v9 继承了同一个环境外壳
+`vec_recovery_env.py`（复用仿真循环、观测器、坠地判定；奖励照算但无人读取）才显得纠缠在一起。
+
+**做法**：46 个 `.py` + 2 个其他文件 `git mv` 到 `RL/legacy/{rl_v0_ppo, rl_vec, flip_table, raptor, diagnose}/`（保留 git 历史）。
+- 先核对主线对待迁移模块**零依赖**（`vec_table_expert_env.py` 被总榜使用、`quad_sim_fast_v2.py` 提供 `QuadParams`，故留在主线）。
+- **实跑抓到一处漏网依赖**：`quad_sim_fast_v2.py` 在 `_throw_state()` 函数内懒加载 `from env.quad_sim_fixed import quat_mul`，
+  静态导入扫描因 `env.` 包前缀漏掉了它；`quad_sim_fixed.py` 一度被移走导致 `test_raptor_in_oursim.py` 失败。已把它移回 `env/`（内容与迁移前逐字节相同），
+  并用更严格的扫描（含函数内导入、包前缀、字符串引用）确认主线对 legacy 再无任何引用。
+- 每个迁移的 `.py` 注入"legacy 迁移引导"：`_LEGACY_ORIG_DIR` 指回原目录并替换 `dirname(abspath(__file__))`，相对路径语义不变；
+  `RL/`、`env/`、`scripts/` 与各 legacy 子目录加入 sys.path。逻辑零改动。`run_baseline.sh` 改为向上两级定位 RL 根目录。
+- `RL/README.md` 重写为主线链路 + 脚本地图；旧版原文保留为 `RL/legacy/OLD_RL_README.md`；新增 `RL/legacy/README.md`（分组、运行方式、旧→新路径对照）。
+
+**核对**（`RL/results/stage20/`）：
+- 加载核对：子进程以非 `__main__` 方式执行每个文件（不训练、不写文件，cwd 为临时目录），迁移前后对比
+  加载状态 / 异常信息 / 模块级路径变量 / 加载到的本地模块 —— **46/46 一致**；其中 4 个迁移前就加载失败（顶层读 sys.argv ×2、
+  导入已不存在的 quad_sim_fast、缺 l2f 包），迁移后失败方式相同，未修。
+- 实跑：legacy 只读脚本 flip_lto / flip_table2 / eval_table_vs_v5 / test_raptor_in_oursim / raptor_policy_np 以 `__main__` 运行通过；
+  训练 / 采集 / 写文件类脚本未实跑（会覆盖 RL/models 已有 checkpoint）。
+- 主线回归：eval_recovery_metrics（v9 99.6% / 2 架，v8 94.5% / 27 架）、eval_all_controllers、visualize_v8_v9 --check、
+  verify_expert8_c_equivalence、run_visualizer.sh 全部与迁移前一致。
+
+**结果**：主线只剩 `env/` 15 个 + `scripts/` 14 个文件；RL/ 根目录不再有 .py。

@@ -1,113 +1,79 @@
-# RL 目录：仿真环境与控制器开发
+# RL 目录：v9 规则控制器的仿真、调参与验证
 
-本项目从**端到端强化学习**起步，经 18+ 轮实验后转向**规则控制器 + 离线最优轨迹**。
-本目录保留了全部环境、训练脚本与实验数据，作为"RL 为什么不适用"的完整证据链。
+> 目录名沿用历史（项目最初走强化学习路线）。**当前主线不做 RL 训练，也不是 MPC**：
+> v9 是手写的规则控制器 —— 翻转段按物理推出的时间最优 bang-bang，接近正立后交给 PD；每步只是一组固定公式，没有网络、没有在线优化。
+> 所谓"训练" = **物理分析写控制律 + 512 通道仿真批量扫参数**，按成功率 / 掉高 / 耗时打分选最优。
+> RL 时代的 PPO、奖励函数、残差网络等脚本已归档到 [legacy/](legacy/README.md)（Stage 20）。
 
-> **结论先行**：PPO 全路线（课程学习/门控残差/BC 锚定/语义动作层/SIL）与 SAC 在 CPU 可及样本量下
-> 全部收敛于基座天花板，无增长生态位。当前冠军是纯规则 v5（83.6%），正在做离线轨迹查表（目标 89%）。
+## v9 主线链路
 
----
+```
+env/yao_kun_params.py          实机物理参数（质量、推力、惯量、电机时间常数）
+        ↓
+env/quad_sim_vec.py            批量刚体动力学，一次推进 512 架
+        ↓
+env/vec_recovery_env.py        环境外壳：随机初始姿态、气压计观测器、坠地判定、稳定悬停计数
+        ↓                      （里面也算 RL 奖励，但主线评测传入的动作全为 0、没有任何代码读奖励）
+env/vec_expert9_env.py         ★ v9 控制律本体，全部参数在 DEFAULT_CTRL
+        ↓
+scripts/eval_recovery_metrics.py   打分：成功率、掉高、翻正耗时、稳悬耗时
+        ↓
+scripts/sweep_v9.py            多进程参数扫描 → 最终参数 results/stage17/v9_final_ctrl.json
+        ↓
+验证   scripts/final_compare_v9.py   留出种子（防过拟合）
+       scripts/robust_v9.py          模型参数失配
+       scripts/eval_noise*.py        传感器噪声（env/noise_wrap.py）
+       scripts/eval_att_est.py       真实姿态估计器（env/att_est_wrap.py）
+        ↓
+scripts/visualize_v8_v9.py     MuJoCo 同工况对比
+        ↓
+[待做] recovery_expert9.h + C/Python 逐位校验 → ESP32
+```
 
-## 目录结构
+## 目录
 
 ```
 RL/
-├── env/                          # 动力学引擎与任务环境
-│   ├── quad_sim_vec.py           # ★ 批量刚体动力学（180k quad-steps/s，对拍 1.8e-12）
-│   ├── vec_recovery_env.py       # 任务环境基类（奖励/互补滤波观测器/终止/钩子）
-│   ├── vec_expert5_env.py        # ★ 冠军：v5 三段式规则 83.6%
-│   ├── vec_expert_env.py         # v3 三段式 80.5%
-│   ├── vec_residual_env.py       # PD + 门控残差（RL 路线，60% 天花板）
-│   ├── vec_expert_residual_env.py# v3 + 残差 + SIL 零锚定（RL 净负，76.6%）
-│   ├── vec_rate_env.py           # 语义动作层 rate 内环（RL，9.8%）
-│   ├── quad_sim_fast_v2.py       # 旧标量环境（P1 时代，含 pd_controller 基线）
-│   ├── quad_sim_fixed.py         # 基准校验版
-│   └── yao_kun_params.py         # 耀坤 K1.0 实机参数台账
-│
+├── env/
+│   ├── yao_kun_params.py         实机参数
+│   ├── quad_sim_vec.py           ★ 批量动力学
+│   ├── quad_sim_fast_v2.py       旧标量仿真；主线只用其中的 QuadParams 参数类
+│   ├── quad_sim_fixed.py         旧标量仿真校验版（quad_sim_fast_v2 懒加载其 quat_mul，故留在主线）
+│   ├── vec_recovery_env.py       环境外壳
+│   ├── vec_expert9_env.py        ★ v9 仿真冠军（99.6%，未移植 C）
+│   ├── vec_expert8_env.py        v8 当前可部署版本（94.5%，有 C 头文件）
+│   ├── vec_expert_env.py         v3 ┐
+│   ├── vec_expert4~7_env.py      v4~v7 ┘ 历代规则控制器（对照）
+│   ├── vec_table_expert_env.py   Stage 13 查表控制器（总榜脚本仍在用，故留在主线）
+│   ├── noise_wrap.py             传感器噪声包装
+│   └── att_est_wrap.py           IMU + Mahony 姿态估计器包装
 ├── scripts/
-│   ├── flip_lto.py               # ★ 单轴离线轨迹优化（对拍解析解 0.9%）
-│   ├── flip_lto3d.py             # 三轴严格四元数求解器
-│   ├── flip_table2.py            # 电机分组建表管线
-│   ├── flip_table.py             # 早期"力矩反解"路线（已废弃）
-│   ├── train_expert_sil.py       # v3 基座 + 门控残差 + SIL 零锚定
-│   ├── train_residual_anchored.py# AnchoredPPO（PPO + BC 损失）
-│   ├── train_rate_anchored.py    # 语义动作层 + SIL
-│   ├── train_planA.py            # Plan A（渐进倾角课程）
-│   ├── train_sac.py              # SAC 对照（回放池机制验证）
-│   ├── collect_anchor_data*.py   # 锚定数据集采集
-│   ├── eval_planA_v2.py          # 倾角扫描尸检
-│   ├── eval_residual.py          # 残差幅值尸检
-│   ├── raptor_policy_np.py       # Raptor 权重解析 + GRU numpy 前向
-│   └── test_raptor_in_oursim.py  # Raptor 权重在本项目 sim 的闭环测试
-│
-├── models/                       # checkpoints 与查表数据
-│   ├── expert_sil/               # Stage 11 (v3+RL) 全程 50 个 ckpt
-│   ├── residual_v1/              # 门控残差（model_2M 是 60.5% 那个）
-│   ├── rate_sil/                 # 语义动作层 SIL
-│   ├── flip_table_axis_x.npz     # 42 格单轴表（已证不合格）
-│   ├── anchor_dataset*.npz       # 锚定数据集
-│   └── p1_*/ p2_*/ planA_*/      # 历史各轮
-│
-├── docs/                         # 实验报告
-│   ├── 交接说明-Stage13查表控制器.md   # ★ 新对话必读
-│   ├── 实验总览.md                    # 全部实验总表
-│   ├── 奖励函数迭代实验日志.md         # 逐轮过程
-│   ├── PlanA完整历程与第一轮训练报告.md # RL 路线尸检
-│   └── v18~v21 诊断报告
-│
-├── eval.py / eval_phase.py / eval_by_height.py / eval_hierarchical.py
-├── eval_pd_e2e.py                # 纯 PD 端到端基线（96/87.4/74.5/49.1%）
-├── compare_tb.py / monitor_training.py / report.py / play.py
-├── export_policy_c.py            # 权重 → C 头文件
-└── train_ppo.py                  # 旧版训练入口（P1/P2 时代）
+│   ├── eval_recovery_metrics.py  掉高 / 耗时专项评测
+│   ├── sweep_v9.py               v9 参数扫描
+│   ├── final_compare_v9.py       v8 vs v9 留出种子对比
+│   ├── robust_v9.py              模型失配测试
+│   ├── eval_noise.py / eval_noise_att.py / eval_att_est.py   噪声与估计器复测
+│   ├── eval_all_controllers.py   历代控制器 512 通道总榜
+│   ├── verify_expert{6,7,8}_c_equivalence.py   C 头文件 vs Python 逐位校验
+│   ├── visualize_v8_v9.py        ★ v8 vs v9 同工况 3D 对比
+│   ├── visualize_recovery.py     旧版 3D 查看器（v5~v8）
+│   └── generate_mujoco_visualizations.py   旧版批量导出视频
+├── legacy/                       历史实验（RL 训练、查表、Raptor、诊断），逻辑未改，仍可运行
+├── results/                      各阶段原始结果（stage17 调参、stage18 噪声、stage19 可视化、stage20 迁移核对）
+├── models/                       checkpoints 与查表数据（大多不入库）
+├── data/                         Raptor 参考权重
+└── docs/                         历史实验报告（文中路径为迁移前路径，对照见 legacy/README.md）
 ```
 
----
-
-## 核心数据
-
-| 策略 | 总分 | ω≥14 | ≥135° |
-|---|---|---|---|
-| 纯 PD | 60.2% | 40.0% | 15.2% |
-| model_2M（RL 残差） | 60.5% | 42.7% | 15.2% |
-| v3 三段式 | 80.5% | 72.0% | 54.3% |
-| **v5 bang-bang** | **83.6%** | **76.0%** | **67.4%** |
-| expert_sil（v3+RL） | 76.6% | 62.7% | 47.8% |
-
-512 通道正式判据：成功 = 从未坠地 且 稳定悬停 ≥50 步。
-
----
-
-## 关键脚本用法
+## 常用命令（在 `RL/scripts/` 下）
 
 ```bash
-# 单轴求解器三道 sanity（对拍解析解 / 扫 tf / 实跑验证）
-python3 scripts/flip_lto.py
-
-# 电机分组参数化建表测试
-python3 scripts/flip_table2.py
-
-# 评估 v5 冠军（512 通道正式判据）
-python3 -c "
-import sys; sys.path.insert(0,'env')
-import numpy as np, torch
-from vec_expert5_env import VecExpert5
-from yao_kun_params import YaoKunK10Params
-env = VecExpert5(num_envs=256, seed=2024, episode_s=5.0,
-                 params=YaoKunK10Params(), tilt_cap_deg=180.0)
-env.reset()
-smax=np.zeros(256); crash=np.zeros(256,bool)
-for t in range(1000):
-    obs,r,done,infos = env.step(np.zeros((256,4)))
-    smax=np.maximum(smax,[i['stable_cnt'] for i in infos])
-    crash|=[i['crash'] for i in infos]
-print('成功率', ((~crash)&(smax>=50)).mean())
-"
+python3 eval_recovery_metrics.py --ctrl vec_expert9_env:VecExpert9 vec_expert8_env:VecExpert8   # v9 / v8 打分
+python3 eval_all_controllers.py                # 历代总榜
+python3 final_compare_v9.py                    # 8 种子最终对比
+python3 eval_att_est.py                        # 真实姿态估计器复测
+python3 visualize_v8_v9.py                     # 3D 对比（或项目根目录 ./run_visualizer.sh v8v9）
+python3 verify_expert8_c_equivalence.py        # v8 C 头文件校验
 ```
 
----
-
-## 环境依赖
-
-numpy 2.x / scipy 1.15+ / stable-baselines3 2.9.2 / torch (CPU) / gymnasium / tensorboard
-（`pip install --user scipy==1.15.3` 若系统 scipy 过旧会与 numpy 2.x 冲突）
+改 v9 参数：编辑 `env/vec_expert9_env.py` 里的 `DEFAULT_CTRL`，或在评测时传 `env_kwargs=dict(ctrl={...})`（`sweep_v9.py` 就是这么做的）。
