@@ -152,3 +152,10 @@ python3 -c "import scipy; print(scipy.__version__)"   # 需 1.15+
 ```
 
 依赖：numpy 2.x / scipy 1.15+ / stable-baselines3 2.9.2 / torch (CPU) / gymnasium
+
+---
+
+## 许可证
+
+本项目以 [MIT License](LICENSE) 发布。第三方代码（RLtools / RAPTOR，MIT）的版权声明见
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
