@@ -1,0 +1,6 @@
+{"reduced_att": true, "prio_mixer": true, "vbatt_aware": true,
+ "TH_H": 1.8325957145940461, "TH_HYS": 0.2617993877991494, "W_H": 10.0,
+ "T_LAG": 0.09, "K_ALPHA": 0.6, "T_DIR": 0.035,
+ "K_TAU_INV": 1.0, "K_TAU_UP": 0.6, "KD_PERP": 0.002,
+ "KZ_ATT": 0.002, "KZ_FLIP": 0.002, "YAW_RES": 0.0,
+ "VZ_UP": 1.8, "KZ_REF": 3.0, "KV_Z": 9.0}
