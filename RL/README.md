@@ -27,7 +27,9 @@ scripts/sweep_v9.py            多进程参数扫描 → 最终参数 results/st
         ↓
 scripts/visualize_v8_v9.py     MuJoCo 同工况对比
         ↓
-[待做] recovery_expert9.h + C/Python 逐位校验 → ESP32
+code/connection_test/main/recovery_expert9.h + mahony_gated.h   C 实现
+        ↓   scripts/verify_expert9_c_equivalence.py 逐项校验（Stage 21）
+[待做] 接入 FreeRTOS 主循环 → 开发板实测
 ```
 
 ## 目录
@@ -40,8 +42,8 @@ RL/
 │   ├── quad_sim_fast_v2.py       旧标量仿真；主线只用其中的 QuadParams 参数类
 │   ├── quad_sim_fixed.py         旧标量仿真校验版（quad_sim_fast_v2 懒加载其 quat_mul，故留在主线）
 │   ├── vec_recovery_env.py       环境外壳
-│   ├── vec_expert9_env.py        ★ v9 仿真冠军（99.6%，未移植 C）
-│   ├── vec_expert8_env.py        v8 当前可部署版本（94.5%，有 C 头文件）
+│   ├── vec_expert9_env.py        ★ v9（99.6%，C 版 recovery_expert9.h）
+│   ├── vec_expert8_env.py        v8 对照版本（94.5%，有 C 头文件）
 │   ├── vec_expert_env.py         v3 ┐
 │   ├── vec_expert4~7_env.py      v4~v7 ┘ 历代规则控制器（对照）
 │   ├── vec_table_expert_env.py   Stage 13 查表控制器（总榜脚本仍在用，故留在主线）
@@ -54,7 +56,8 @@ RL/
 │   ├── robust_v9.py              模型失配测试
 │   ├── eval_noise.py / eval_noise_att.py / eval_att_est.py   噪声与估计器复测
 │   ├── eval_all_controllers.py   历代控制器 512 通道总榜
-│   ├── verify_expert{6,7,8}_c_equivalence.py   C 头文件 vs Python 逐位校验
+│   ├── verify_expert9_c_equivalence.py   ★ v9 控制器 + 门控 Mahony 的 C 实现全量校验
+│   ├── verify_expert{6,7,8}_c_equivalence.py   前代 C 头文件 vs Python 逐位校验
 │   ├── visualize_v8_v9.py        ★ v8 vs v9 同工况 3D 对比
 │   ├── visualize_recovery.py     旧版 3D 查看器（v5~v8）
 │   └── generate_mujoco_visualizations.py   旧版批量导出视频
@@ -73,7 +76,9 @@ python3 eval_all_controllers.py                # 历代总榜
 python3 final_compare_v9.py                    # 8 种子最终对比
 python3 eval_att_est.py                        # 真实姿态估计器复测
 python3 visualize_v8_v9.py                     # 3D 对比（或项目根目录 ./run_visualizer.sh v8v9）
+python3 verify_expert9_c_equivalence.py        # v9 + 门控 Mahony C 实现全量校验（--quick 快速版）
 python3 verify_expert8_c_equivalence.py        # v8 C 头文件校验
 ```
 
 改 v9 参数：编辑 `env/vec_expert9_env.py` 里的 `DEFAULT_CTRL`，或在评测时传 `env_kwargs=dict(ctrl={...})`（`sweep_v9.py` 就是这么做的）。
+**改完参数必须同步改 `recovery_expert9.h` 的 `#define`**，再跑 `verify_expert9_c_equivalence.py`——它的 A 项会逐个比对常数，不一致直接报错。

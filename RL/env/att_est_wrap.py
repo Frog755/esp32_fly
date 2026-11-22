@@ -56,6 +56,27 @@ def up_in_body(q):
     return np.stack([2 * (qx * qz - qw * qy), 2 * (qy * qz + qw * qx), 1 - 2 * (qx * qx + qy * qy)], axis=1)
 
 
+def mahony_update(qe, wm, fb, dt, c):
+    """一次 Mahony 更新（批量）。qe:(N,4) 当前估计；wm:(N,3) 陀螺测量；fb:(N,3) 加速度计比力；c: 估计器参数字典。
+    mode: 'gyro' 纯陀螺积分 / 'plain' 固定增益 / 'gated' 门控（比力模长接近 1g 且 |ω| 小时才用加速度计修正）。"""
+    N = len(qe)
+    fn = np.linalg.norm(fb, axis=1)
+    a = fb / np.maximum(fn, 1e-6)[:, None]
+    v = up_in_body(qe)
+    e = np.cross(a, v)
+    if c['mode'] == 'gyro':
+        k = np.zeros(N)
+    elif c['mode'] == 'plain':
+        k = np.full(N, c['kp']) * (fn > 1e-3)
+    else:  # gated
+        gf = np.clip(1.0 - np.abs(fn / G - 1.0) / c['f_band'], 0.0, 1.0)
+        gw = np.clip((c['w_hi'] - np.linalg.norm(wm, axis=1)) / (c['w_hi'] - c['w_lo']), 0.0, 1.0)
+        k = c['kp'] * gf * gw
+    wc = wm + k[:, None] * e
+    qn = qmul(qe, qexp(wc * dt))
+    return qn / np.linalg.norm(qn, axis=1, keepdims=True)
+
+
 def make_estimated(base_cls):
     class Est(base_cls):
         def __init__(self, *args, est=None, est_seed=1, est_stats=None, **kwargs):
@@ -116,21 +137,8 @@ def make_estimated(base_cls):
             R2 = np.stack([2 * (qx * qz - qw * qy), 2 * (qy * qz + qw * qx), 1 - 2 * (qx * qx + qy * qy)], axis=1)
             fb = (R0 * fw[:, 0:1] + R1 * fw[:, 1:2] + R2 * fw[:, 2:3])
             fb = fb + self._erng.normal(0.0, c['acc_sigma'], size=(N, 3))
-            fn = np.linalg.norm(fb, axis=1)
-            a = fb / np.maximum(fn, 1e-6)[:, None]
-            v = up_in_body(self._qe)
-            e = np.cross(a, v)
-            if c['mode'] == 'gyro':
-                k = np.zeros(N)
-            elif c['mode'] == 'plain':
-                k = np.full(N, c['kp']) * (fn > 1e-3)
-            else:  # gated
-                gf = np.clip(1.0 - np.abs(fn / G - 1.0) / c['f_band'], 0.0, 1.0)
-                gw = np.clip((c['w_hi'] - np.linalg.norm(wm, axis=1)) / (c['w_hi'] - c['w_lo']), 0.0, 1.0)
-                k = c['kp'] * gf * gw
-            wc = wm + k[:, None] * e
-            qn = qmul(self._qe, qexp(wc * dt))
-            self._qe = qn / np.linalg.norm(qn, axis=1, keepdims=True)
+            upd = c.get('update_fn') or mahony_update      # 可替换为 C 实现（verify_expert9_c_equivalence.py）
+            self._qe = upd(self._qe, wm, fb, dt, c)
             # 倾角估计误差（机体 z 轴夹角）
             err = np.arccos(np.clip((body_z_world(self._qe) * body_z_world(q)).sum(1), -1.0, 1.0))
             f = self._first

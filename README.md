@@ -7,10 +7,11 @@
 512 通道正式判据下 **99.6%**（8-Seed 均值 99.6%；高转速带 98.6%，深倒扣带 98.8%，坠毁 2/512），
 **掉高中位 0.87m（v8 1.17m）、P90 1.57m（v8 2.54m）**，倾斜翻正中位 0.23s，进入稳定悬停中位 1.35s（v8 2.25s）。
 传感器噪声与真实姿态估计器复测（Stage 18）：现实噪声下 v9 不受影响；配合**门控 Mahony** 姿态估计器，悲观噪声 + 10s 回合仍为 99.6%。
-⚠️ v9 目前**仅仿真验证**（满电开局），尚未移植 C 头文件。
+**C 实现（Stage 21）**：`recovery_expert9.h`（200 Hz）+ `mahony_gated.h`（1 kHz），纯单精度、零堆内存，ESP32-S3 交叉编译通过（3.3 KB、无双精度运算）。
+用 C 代码直接在仿真里飞，8 种子 × 512 架与 Python **逐通道成败 100% 相同**（逐步油门最大差 4e-05）；C 估计器 + C 控制器整链在悲观噪声 10 s 下 99.6%。
+⚠️ 以上均为仿真结果，**尚未上板实测**；满电开局。
 
-**当前可部署版本**：v8 —— 陀螺力矩前馈 + 临界过阻尼刹车，94.5%，`recovery_expert8.h` 与 Python 按位对齐（误差 1.3e-6），
-单步 < 0.65 μs，零堆内存，可直接烧录到 ESP32-S3。
+**对照版本**：v8 —— 陀螺力矩前馈 + 临界过阻尼刹车，94.5%，`recovery_expert8.h` 与 Python 按位对齐（误差 1.3e-6）。
 
 ---
 
@@ -32,14 +33,17 @@ PPO（含课程学习、门控残差、BC 锚定、语义动作层、SIL 自模�
 ```
 esp32_fly/
 ├── code/                    # 嵌入式飞控工程 (ESP-IDF C/C++)
-│   └── connection_test/main/recovery_expert{6,7,8}.h  # 各代控制器纯 C 部署头文件
+│   └── connection_test/main/
+│       ├── recovery_expert9.h   # ★ v9 控制器纯 C（200 Hz）
+│       ├── mahony_gated.h       # ★ 门控 Mahony 姿态估计器纯 C（1 kHz）
+│       └── recovery_expert{6,7,8}.h  # 前代控制器 C 头文件
 ├── RL/
 │   ├── README.md            # ★ v9 主线链路与脚本地图（先看这个）
 │   ├── env/                 # 动力学引擎与任务环境
 │   │   ├── quad_sim_vec.py      # 批量刚体动力学（180k quad-steps/s，对拍误差 1.8e-12）
 │   │   ├── vec_recovery_env.py  # 任务环境基类（奖励/观测器/终止/钩子）
-│   │   ├── vec_expert9_env.py   # ★ 仿真冠军 v9 低掉高快速回正 (99.6%，尚未移植 C)
-│   │   ├── vec_expert8_env.py   # v8 当前可部署版本 (94.5%)
+│   │   ├── vec_expert9_env.py   # ★ v9 低掉高快速回正 (99.6%，C 版 recovery_expert9.h)
+│   │   ├── vec_expert8_env.py   # v8 对照版本 (94.5%)
 │   │   ├── vec_expert7_env.py   # v7 级联定点自稳 (92.0%)
 │   │   ├── vec_expert6_env.py   # v6 提前交接闭环 (92.4%)
 │   │   ├── vec_expert5_env.py   # v5 最小时间 bang-bang (84.0%)
@@ -48,7 +52,8 @@ esp32_fly/
 │   │   ├── att_est_wrap.py      # IMU 原始数据 + Mahony 姿态估计器包装（纯陀螺/普通/门控；Stage 18）
 │   │   └── yao_kun_params.py    # 耀坤 K1.0 实机参数台账
 │   ├── scripts/             # 主线评测 / 调参 / 验证 / 可视化脚本
-│   │   ├── verify_expert8_c_equivalence.py  # C vs Python 逐位等价性验证
+│   │   ├── verify_expert9_c_equivalence.py  # ★ v9 + 门控 Mahony 的 C vs Python 全量校验（Stage 21）
+│   │   ├── verify_expert8_c_equivalence.py  # v8 C vs Python 逐位等价性验证
 │   │   ├── eval_all_controllers.py          # 各代控制器 512 通道横向对比总榜
 │   │   ├── eval_recovery_metrics.py         # 掉高量 / 翻正耗时 / 稳悬耗时专项评测（Stage 17）
 │   │   ├── sweep_v9.py / final_compare_v9.py / robust_v9.py  # v9 参数扫描、留出种子对比、模型失配测试
@@ -91,7 +96,7 @@ esp32_fly/
 | 3D 轨迹查表 (Stage 13) | 52.7% | 43.4% | 1.2% | +1.06m | 单点 95.8%，但连续受低 TWR 开环漂移制约 |
 | v6 提前交接闭环专家 | 92.4% | 80.7% | 80.0% | +1.92m | 突破 89% 门槛，但水平漂移大（中位 3.22m） |
 | v7 级联定点自稳 | 92.0% | — | — | +1.98m | 中位水平漂移降至 0.054m，漂移>3m 率 55%→1.3%，坠毁 39 架 |
-| v8 临界过阻尼刹车 | 94.5% | 85.5% | 84.7% | +2.03m | 当前可部署版本，陀螺前馈 + ζ=1.13 刹车，坠毁 27 架，4-Seed 均值 94.6% |
+| v8 临界过阻尼刹车 | 94.5% | 85.5% | 84.7% | +2.03m | 对照版本，陀螺前馈 + ζ=1.13 刹车，坠毁 27 架，4-Seed 均值 94.6% |
 | **★ v9 低掉高快速回正** | **99.6%** | **98.6%** | **98.8%** | **+2.37m** | **仿真冠军**，自旋超前补偿，坠毁 2 架，8-Seed 均值 99.6%（含 5 个留出种子） |
 
 ### 回正掉高与耗时（Stage 17 新增指标，8-Seed 均值，`eval_recovery_metrics.py`）
@@ -154,13 +159,23 @@ esp32_fly/
 查看器采用"后台进程预计算整段轨迹 + 窗口纯回放"，60~70 fps 流畅播放；随机通道需先计算约 10 s。
 对比视频（76 s、0.5× 慢放）：[GitHub Release 下载 v8_vs_v9_6cases.mp4](https://github.com/Frog755/esp32_fly/releases/download/stage19-v8-vs-v9/v8_vs_v9_6cases.mp4)（视频不入库；本地可用 `./run_visualizer.sh export-v8v9` 重新生成到 `RL/results/stage19/`，同时导出曲线图）。
 
+### C 移植校验（Stage 21，`verify_expert9_c_equivalence.py` / `./run_visualizer.sh verify-c9`）
+
+| 项目 | 内容 | 结果 |
+|---|---|---|
+| A 常数 | 52 项：参数、电机符号、开关假设 | 全部一致 |
+| B 控制器逐步 | Python 闭环飞 2 种子 × 1000 步 × 512，每步同一 float32 输入同时给 C / Python（1,024,000 样本，含 824 次模式切换） | 油门最大差 4.0e-05，推力最大差 6.5e-07 N，模式 0 处不同 |
+| C 控制器闭环 | C 控制器直接飞 8 种子 × 512 | 成功 99.6% / 掉高中位 0.874 m，与 Python 相同；逐通道成败 100% 相同 |
+| D 门控 Mahony | 静止初始化、悲观噪声 10 s 逐次更新（5,120,000 次）、C 估计器 + C 控制器整链闭环 | 单次更新最大差 1.5e-05°；整链悲观噪声 10 s：99.6% |
+| E ESP32-S3 交叉编译 | xtensa-esp32s3-elf-gcc -O2 | 通过，3359 字节，无双精度调用 |
+
 ---
 
 ## 进行中：真机闭环部署
 
-仿真侧：v8（94.5%）已有按位对齐的 C 头文件；v9（99.6%）已通过噪声与真实姿态估计器复测，待移植 `recovery_expert9.h` + 门控 Mahony 估计器。下一步：
+仿真侧已完成：v9（99.6%）的控制器 `recovery_expert9.h` 与门控 Mahony 估计器 `mahony_gated.h` 已移植 C 并逐项校验。下一步：
 
-1. 将 `recovery_expert8.h` 接入耀坤主控工程的 FreeRTOS 200Hz 核心姿态控制任务；
+1. 将 `mahony_gated.h`（1 kHz IMU 任务）与 `recovery_expert9.h`（200 Hz 姿态任务）接入耀坤主控工程的 FreeRTOS；
 2. 链接 MPU6500（**门控 Mahony** 四元数估计，Kp≈2）与 BMP280（气压计互补滤波）真实传感器；
 3. 交叉编译固件，开发板刷写并执行台架姿态回正自检。
 
@@ -216,6 +231,7 @@ esp32_fly/
 cd RL
 python3 scripts/eval_all_controllers.py          # 各代控制器 512 通道横向对比总榜
 python3 scripts/eval_recovery_metrics.py --ctrl vec_expert9_env:VecExpert9 vec_expert8_env:VecExpert8  # 掉高/耗时专项
+python3 scripts/verify_expert9_c_equivalence.py  # v9 + 门控 Mahony C 实现全量校验（约 1.5 分钟，--quick 约 40 秒）
 python3 scripts/verify_expert8_c_equivalence.py  # v8 C 头文件 vs Python 逐位等价校验
 python3 legacy/flip_table/flip_lto.py      # （历史）Stage 13 单轴求解器 sanity 检查
 python3 -c "import scipy; print(scipy.__version__)"   # 需 1.15+

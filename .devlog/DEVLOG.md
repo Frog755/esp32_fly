@@ -532,3 +532,33 @@ Mahony：q̇ = ½ q ⊗ (ω_meas + Kp·gate·(â × v̂))。符号自检：30° 
   verify_expert8_c_equivalence、run_visualizer.sh 全部与迁移前一致。
 
 **结果**：主线只剩 `env/` 15 个 + `scripts/` 14 个文件；RL/ 根目录不再有 .py。
+
+---
+
+## 2026-11-22 · Stage 21: v9 控制器 + 门控 Mahony 移植到 C
+
+**交付**：`code/connection_test/main/recovery_expert9.h`（v9 控制器，200 Hz，状态结构体 `recovery9_state_t` 保存高度积分器与 bang-bang 迟滞标志）、
+`mahony_gated.h`（门控 Mahony，1 kHz，含静止时由加速度计初始化倾角）、`RL/scripts/verify_expert9_c_equivalence.py`（全量校验）。
+纯单精度、零堆内存；只实现最终参数路径（reduced_att / prio_mixer / vbatt_aware 开、YAW_IN_FLIP 关），A 项会核对这些假设。
+`att_est_wrap.py` 把 Mahony 数学提成模块级 `mahony_update()`，并允许 `est['update_fn']` 替换为 C 实现——提取前后 4 个工况 36 组结果数组逐位相同。
+
+**校验**（v8 当年只核对 10 步、基本都在翻转段；这次覆盖完整飞行）：
+- A 常数：52 项全部一致（头文件 #define vs YaoKunK10Params / DEFAULT_CTRL / DEFAULT_EST，电机符号 vs sign(Minv)）。
+- B 逐步：Python 闭环飞 2 种子 × 1000 步 × 512，每步同一 float32 输入 + 同一内部状态喂给 C / Python，共 1,024,000 样本
+  （824 次模式切换、25,633 次竖直刹车、879,301 次方向退化分支）。油门最大差 4.0e-05，推力最大差 6.5e-07 N，
+  积分器最大差 9.5e-09，模式不同 0 处，非边界显著差异 0 个。
+  近零推力电机（u<1e-3，低于死区 0.05）有 657 个样本油门差 >1e-4（最大 3.1e-04）：
+  1 个 float32 ulp 推力（~3e-8 N）经 u∝√T 放大所致，改在推力域比较并单列。
+- C 闭环：C 控制器直接飞 8 种子 × 512 → 成功 99.6%、掉高中位 0.874 m、稳悬 1.355 s，与 Python 完全相同；
+  逐通道成败 100% 相同，掉高最大差 1e-04 m。
+- D 估计器：静止初始化 20,000 个随机方向（含完全倒置）最大偏差 2.6e-05°；悲观噪声 10 s 逐次更新 5,120,000 次，单次最大差 1.5e-05°；
+  C 估计器 + C 控制器整链：常规噪声 5 s 99.6%、悲观噪声 10 s 99.6%，均与 Python 逐通道相同。
+- E 交叉编译：esp-15.2.0_20251204 -O2 通过，外部调用 ['__divsf3', 'atan2f', 'cosf', 'sinf', 'sqrtf']，无双精度助手，3359 字节。
+- F 主机耗时：控制器 115 ns/次、估计器 66 ns/次（Intel(R) Core(TM) Ultra 5 125H，受负载波动）；ESP32 实测待开发板。
+
+**过程中的问题**：
+1. 首次 B 项报 5.7 万个差异——校验脚本 bug：把 C 已原地更新过的积分器又交给 Python 再积一次。修正后积分器差 1e-8。
+2. 静止初始化原用 q=[1+az, ay, −ax, 0] 归一化，近倒置时 1+az 抵消丢精度（0.058°）；改为半角三角函数写法后 2.6e-5°。
+3. 角度误差度量从 arccos(点积) 改为 atan2，避免小角度下的舍入放大。
+
+**局限**：仅仿真内校验；未在开发板运行；未接入 FreeRTOS 与真实传感器驱动。

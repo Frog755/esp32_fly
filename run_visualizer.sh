@@ -28,7 +28,8 @@ show_help() {
     echo "  ./run_visualizer.sh deep         # 测评 149° 极限深倒扣工况"
     echo "  ./run_visualizer.sh fast         # 测评 15.4 rad/s 极限高角速度工况"
     echo "  ./run_visualizer.sh eval         # 运行 512 通道官方五代基准综合测评榜"
-    echo "  ./run_visualizer.sh verify-c     # 运行 C 固件与 Python 浮点一致性校验"
+    echo "  ./run_visualizer.sh verify-c     # 运行 C 固件与 Python 浮点一致性校验（v8）"
+    echo "  ./run_visualizer.sh verify-c9    # v9 控制器 + 门控 Mahony 的 C 实现全量校验（约 5 分钟；加 --quick 约 40 秒）"
     echo "  ./run_visualizer.sh export       # 离线批量导出高清对决视频与动图"
     echo "--------------------------------------------------------------------------"
     echo "3D 原生交互说明:"
@@ -88,6 +89,10 @@ case "$CMD" in
     verify-c)
         echo ">>> 校验 C 嵌入式头文件 recovery_expert8.h 与 Python 输出一致性..."
         python3 "${PROJECT_ROOT}/RL/scripts/verify_expert8_c_equivalence.py"
+        ;;
+    verify-c9)
+        echo ">>> 校验 recovery_expert9.h + mahony_gated.h 与 Python 一致性..."
+        python3 "${PROJECT_ROOT}/RL/scripts/verify_expert9_c_equivalence.py" "${@:2}"
         ;;
     export)
         echo ">>> 导出全量 MuJoCo 评测高清视频与 GIF..."

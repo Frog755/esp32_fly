@@ -1,12 +1,13 @@
 # 项目实时状态看板 (STATE.md)
 
-> 更新：2026-11-22 ｜ 阶段：Stage 20 完成（历史脚本归档到 RL/legacy/，主线脚本地图见 RL/README.md）→ 下一步：移植 v9 + 门控 Mahony 到 C → 真机部署
+> 更新：2026-11-22 ｜ 阶段：Stage 21 完成（v9 控制器 + 门控 Mahony 已移植 C，仿真内逐项校验通过）→ 下一步：接入 FreeRTOS 主循环 → 开发板实测
 
 ## 目标与达成
 - Stage 17 目标：减少回正掉高、缩短回正耗时 → **v9**（8 种子 × 512 均值，含 5 个留出种子）：
   - 成功率 94.3% → **99.6%**，坠毁 29.0 → **1.9** 架/512；
   - 掉高 中位 1.17 → **0.87m**，P90 2.54 → **1.57m**；深倒扣中位 2.04 → **1.26m**；
   - 倾斜翻正 中位 0.274 → **0.225s**；进入稳定悬停 中位 2.25 → **1.35s**。
+- Stage 21：v9 + 门控 Mahony 移植 C，C 代码在仿真里直接飞与 Python 逐通道成败 100% 相同，ESP32-S3 交叉编译 3359 字节、无双精度运算。
 - Stage 18 目标：检验 v9 在传感器噪声下是否成立（用户明确：只加噪声，不测低电量）：
   - 现实噪声（L1~L3）v9 99.5~99.6%，几乎零退化；悲观 L4 v9 97.8% vs v8 90.2%。
   - **真实姿态估计器**：门控 Mahony Kp=2 下 v9 99.6%；悲观噪声 + 10s 回合仍 99.6%。
@@ -36,10 +37,13 @@
 - `RL/env/noise_wrap.py` 传感器噪声包装（控制器读带噪测量，仿真用真值）
 - `RL/scripts/eval_recovery_metrics.py` 掉高 / 翻正耗时 / 稳悬耗时专项评测
 - `RL/scripts/eval_noise.py` / `eval_noise_att.py` / `eval_att_est.py` 噪声分级、姿态误差拆分、真实估计器复测
-- `RL/env/vec_expert8_env.py` + `code/connection_test/main/recovery_expert8.h` 当前可部署版本 v8（C 按位对齐 1.3e-6）
+- `code/connection_test/main/recovery_expert9.h` ★ v9 控制器 C（200 Hz）；`mahony_gated.h` ★ 门控 Mahony C（1 kHz）
+- `RL/scripts/verify_expert9_c_equivalence.py` C vs Python 全量校验（常数 / 逐步 / 闭环 / 估计器 / 交叉编译）
+- `RL/env/vec_expert8_env.py` + `code/connection_test/main/recovery_expert8.h` v8 对照版本（C 按位对齐 1.3e-6）
 - `RL/scripts/visualize_v8_v9.py` / `./run_visualizer.sh v8v9` v8 vs v9 同工况并排 3D 对比（预计算 + 回放，60~70 fps）
 
 ## 下一步
-1. **移植到 C**：`recovery_expert9.h`（新增一次 sin/cos）+ 门控 Mahony 估计器，各自做 C vs Python 逐位校验。
+1. **接入固件**：FreeRTOS 1 kHz IMU 任务（MPU6500 → `mahony_gated_update`，上电先校准陀螺零偏、`mahony_gated_init_from_accel`） + 200 Hz 控制任务（`recovery_expert9_step`）；BMP280 + 加速度计互补滤波给 z_est / vz_est；无水平定位时 pos_xy 传目标、vel_xy 传 0。
+   开发板上实测单步耗时。
 2. （可选）补测 IMU 偏心离心加速度与电机频率振动，检验门控阈值。
 3. **真机部署**：接入耀坤主控 FreeRTOS 200Hz 姿态任务，链接 MPU6500 / BMP280；实测电机响应时间以设定 T_DIR，台架自检。
