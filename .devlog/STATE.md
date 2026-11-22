@@ -1,6 +1,6 @@
 # 项目实时状态看板 (STATE.md)
 
-> 更新：2026-11-22 ｜ 阶段：Stage 18 完成（v9 通过噪声与真实姿态估计器复测）→ 下一步：移植 v9 + 门控 Mahony 到 C → 真机部署
+> 更新：2026-11-22 ｜ 阶段：Stage 19 完成（v8 vs v9 同工况 MuJoCo 对比可视化）→ 下一步：移植 v9 + 门控 Mahony 到 C → 真机部署
 
 ## 目标与达成
 - Stage 17 目标：减少回正掉高、缩短回正耗时 → **v9**（8 种子 × 512 均值，含 5 个留出种子）：
@@ -35,6 +35,7 @@
 - `RL/scripts/eval_recovery_metrics.py` 掉高 / 翻正耗时 / 稳悬耗时专项评测
 - `RL/scripts/eval_noise.py` / `eval_noise_att.py` / `eval_att_est.py` 噪声分级、姿态误差拆分、真实估计器复测
 - `RL/env/vec_expert8_env.py` + `code/connection_test/main/recovery_expert8.h` 当前可部署版本 v8（C 按位对齐 1.3e-6）
+- `RL/scripts/visualize_v8_v9.py` / `./run_visualizer.sh v8v9` v8 vs v9 同工况并排 3D 对比（预计算 + 回放，60~70 fps）
 
 ## 下一步
 1. **移植到 C**：`recovery_expert9.h`（新增一次 sin/cos）+ 门控 Mahony 估计器，各自做 C vs Python 逐位校验。

@@ -20,6 +20,8 @@ show_help() {
     echo "=========================================================================="
     echo "使用方式:"
     echo "  ./run_visualizer.sh              # 默认启动 3D 原生对决 (左侧 v6 开环漂移 vs 右侧 v8 旗舰定点对决)"
+    echo "  ./run_visualizer.sh v8v9         # v8 vs v9 同工况并排对比（左红 v8 / 右青 v9，按 1~6 切换精选工况）"
+    echo "  ./run_visualizer.sh export-v8v9  # 离线导出 v8 vs v9 对比视频 + 高度曲线图到 RL/results/stage19/"
     echo "  ./run_visualizer.sh v8           # 启动 v8 陀螺解耦定点旗舰单机视口"
     echo "  ./run_visualizer.sh v7           # 启动 v7 级联定点自稳专家单机视口"
     echo "  ./run_visualizer.sh v6           # 启动 v6 前代姿态闭环专家单机视口"
@@ -44,6 +46,16 @@ case "$CMD" in
     compare)
         echo ">>> 启动官方原生 MuJoCo 3D 交互测评 (左侧 v6 开环漂移 vs 右侧 v8 旗舰定点对决)..."
         python3 "${PROJECT_ROOT}/RL/scripts/visualize_recovery.py" --mode compare --case deep
+        ;;
+    v8v9)
+        echo ">>> 启动 v8 vs v9 同工况并排 3D 对比（左红 v8 / 右青 v9）..."
+        python3 "${PROJECT_ROOT}/RL/scripts/visualize_v8_v9.py" "${@:2}"
+        ;;
+    export-v8v9)
+        echo ">>> 导出 v8 vs v9 对比视频与高度曲线图..."
+        mkdir -p "${PROJECT_ROOT}/RL/results/stage19"
+        python3 "${PROJECT_ROOT}/RL/scripts/visualize_v8_v9.py" --plot "${PROJECT_ROOT}/RL/results/stage19/v8_vs_v9_curves.png"
+        python3 "${PROJECT_ROOT}/RL/scripts/visualize_v8_v9.py" --export "${PROJECT_ROOT}/RL/results/stage19/v8_vs_v9_6cases.mp4"
         ;;
     v8)
         echo ">>> 启动官方原生 MuJoCo 3D 交互测评 (v8 陀螺解耦定点旗舰单机视口)..."

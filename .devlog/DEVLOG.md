@@ -481,3 +481,26 @@ Mahony：q̇ = ½ q ⊗ (ω_meas + Kp·gate·(â × v̂))。符号自检：30° 
 下一步：移植 `recovery_expert9.h` + 门控 Mahony C 实现，做 C vs Python 逐位校验。
 
 **资产**：`RL/env/{noise_wrap,att_est_wrap}.py`、`RL/scripts/{eval_noise,eval_noise_att,eval_att_est}.py`、`RL/results/stage18/`。
+
+---
+
+## 2026-11-22 · Stage 19: v8 vs v9 同工况 MuJoCo 并排对比可视化
+
+**目标**：直观看到 v9 相对 v8 的掉高 / 回正耗时差异。
+
+**实现（`RL/scripts/visualize_v8_v9.py`）**：
+- 两机来自同一 seed=2024、同一通道 → 初始状态完全相同；复用 `visualize_recovery.py` 的场景（左槽红 = v8，右槽青 = v9）。
+- 叠加：机体 z 轴推力箭头、轨迹尾迹、最低点彩色圆盘、初始高度灰色圆盘；油门从每步 `_action_to_throttle` 截获驱动桨叶转速
+  （旧 `visualize_recovery.py` 读 `_prev_a`，而专家控制器下该值恒为 0，桨叶实际不转——未改动旧脚本）。
+- `--check`：6 个精选工况 × 2 控制器的掉高 / 坠毁 / 稳悬时刻与 `eval_recovery_metrics.py` 逐项一致。
+- `--export`：EGL 无窗口渲染 + PIL 中文 HUD（双机近景、实时指标、高度曲线）+ ffmpeg H.264；`--plot`：2×3 高度曲线对比图。
+- 精选工况：#85 深倒扣无转速、#249 / #146 偏航高速自旋（v8 坠毁、v9 恢复）、#241 掉高差最大（3.05→0.89 m）、#48 高转速、#396 两者都坠毁。
+
+**问题与修复：交互查看器卡死**（用户反馈后手动关闭）：
+- 根因：每帧都要把 v8 / v9 两个 512 通道批量环境各推进一步（7.3 ms/步，上限 0.68× 实时），且 Python 计算持续占住 GIL，
+  查看器事件 / 按键处理被拖住，表现为卡死。
+- 修复：后台进程池（fork，先于 OpenGL 初始化）整段预计算轨迹（6 个精选工况并行约 14 s），窗口只按时间索引回放（seek 0.004 ms/帧），
+  主循环 60~70 fps；回放终态与直接仿真逐位一致。精选工况播完自动轮播下一个，随机通道（`B`）计算期间显示 "Computing…"。
+
+**资产**：`RL/scripts/visualize_v8_v9.py`、`run_visualizer.sh`（新增 `v8v9` / `export-v8v9`）、`RL/results/stage19/v8_vs_v9_curves.png`
+（对比视频 `v8_vs_v9_6cases.mp4` 按 .gitignore 不入库，可用 `./run_visualizer.sh export-v8v9` 重新生成）。

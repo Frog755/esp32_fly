@@ -58,6 +58,7 @@ esp32_fly/
 │   │   ├── sweep_v9.py / final_compare_v9.py / robust_v9.py  # v9 参数扫描、留出种子对比、模型失配测试
 │   │   ├── eval_noise.py / eval_noise_att.py / eval_att_est.py  # 噪声分级、姿态误差拆分、真实估计器复测
 │   │   ├── visualize_recovery.py            # MuJoCo 3D 交互查看器（配合 run_visualizer.sh）
+│   │   ├── visualize_v8_v9.py               # v8 vs v9 同工况并排 3D 对比：交互回放 / 导出视频 / 高度曲线图（Stage 19）
 │   │   └── train_*.py           # 各架构训练脚本（保留作对照）
 │   ├── models/              # checkpoints 与查表数据
 │   └── docs/                # 实验报告与交接文档
@@ -137,6 +138,25 @@ esp32_fly/
 **纯陀螺积分短时准、长时漂**；**门控 Mahony**（比力模长偏离 1g 超 15% 或 |ω| 在 1→3 rad/s 时修正权重降到 0）两头都避开，推荐固件采用，Kp≈2（Kp=5 反而变差）。
 全部测试中单轴角速度最大 25.9 rad/s，未触及 MPU6500 ±2000°/s（34.9 rad/s）量程。
 
+### 同工况对比可视化（Stage 19，`visualize_v8_v9.py`）
+
+同一 seed、同一通道 → v8 与 v9 初始姿态 / 角速度 / 高度完全相同，结果与评测逐位一致（`--check` 核对）。
+
+![v8 vs v9 同一初始状态的高度曲线](RL/results/stage19/v8_vs_v9_curves.png)
+
+| 通道 | 初始状态 | v8 | v9 |
+|---|---|---|---|
+| #85 | 倒扣 149°，几乎不转 | 掉高 2.07 m，2.60 s 稳悬 | **掉高 0.75 m，1.07 s 稳悬** |
+| #249 | 倾斜 81°，偏航自旋 17 rad/s | **坠毁** @1.01 s | 掉高 1.02 m，1.91 s 稳悬 |
+| #241 | 倒扣 142° + 9 rad/s | 掉高 3.05 m（离坠地线仅 0.25 m） | **掉高 0.89 m**，1.43 s 稳悬 |
+| #146 | 倒扣 170° + 15 rad/s | **坠毁** @0.83 s | 掉高 1.37 m，2.02 s 稳悬 |
+| #48 | 倾斜 101° + 15.4 rad/s | 掉高 2.33 m，3.17 s 稳悬 | 掉高 1.80 m，2.07 s 稳悬 |
+| #396 | 倒扣 168°，偏航自旋 19 rad/s | 坠毁 | 坠毁（v9 剩余失败类型） |
+
+交互查看：`./run_visualizer.sh v8v9`（左红 v8 / 右青 v9，`1`~`6` 切换、`B` 随机、空格暂停、`S` 慢放）。
+查看器采用"后台进程预计算整段轨迹 + 窗口纯回放"，60~70 fps 流畅播放；随机通道需先计算约 10 s。
+导出：`./run_visualizer.sh export-v8v9` → `RL/results/stage19/v8_vs_v9_6cases.mp4`（约 80 s、0.5× 慢放，视频不入库）与曲线图。
+
 ---
 
 ## 进行中：真机闭环部署
@@ -194,6 +214,7 @@ esp32_fly/
 ## 快速开始
 
 ```bash
+./run_visualizer.sh v8v9              # MuJoCo 3D：v8 vs v9 同工况并排对比（推荐）
 ./run_visualizer.sh                   # MuJoCo 3D 对决：v6 vs v8（另有 v8 / v7 / v6 单机视口）
 cd RL
 python3 scripts/eval_all_controllers.py          # 各代控制器 512 通道横向对比总榜
