@@ -11,7 +11,7 @@
   第 8 步：起飞→（台架上离不了地）起飞超时→自动降落→触地停桨；land 指令；空格急停
 输出：dryrun_check.json、dryrun_raw.csv、dryrun_events.txt —— 把终端输出或 json 发给我。
 """
-import sys, time, json, math
+import sys, time, json, math, threading
 
 try:
     import serial
@@ -34,9 +34,26 @@ class Board:
         self.ser = serial.Serial(PORT, 115200, timeout=0.1)
         time.sleep(0.2); self.ser.reset_input_buffer()
         self.buf = ''; self.last_t = None; self.resets = 0; self.status = {}; self.evts = []; self.out_nonzero = 0
+        self.lock = threading.Lock(); self.hb_on = True
+        threading.Thread(target=self._hb, daemon=True).start()     # 串口心跳：固件没有链路就不让解锁（同手机网页每 0.1 s 一次）
+
+    def _hb(self):
+        while True:
+            if self.hb_on:
+                try:
+                    with self.lock:
+                        self.ser.write(b'hb\n')
+                except Exception:
+                    pass
+            time.sleep(0.1)
 
     def send(self, s):
-        self.ser.write((s + '\n').encode())
+        with self.lock:
+            self.ser.write((s + '\n').encode())
+
+    def kill(self):
+        with self.lock:
+            self.ser.write(b' ')
 
     def poll(self):
         out = []
@@ -140,13 +157,13 @@ def step_yaw(b):
 
 
 def step_safety(b):
-    input('→【安全逻辑 + 降落逻辑检查（电机不会转，约 20 秒）：飞机平放静止，按回车，然后别碰它】 ')
+    input('→【安全逻辑 + 降落 + 链路丢失检查（电机不会转，约 30 秒）：飞机平放静止，按回车，然后别碰它】 ')
     res = {}; ok = True; out_max = 0.0
 
     def ev(cmd, word, sec=1.5):
         b.evts = []
         if cmd == ' ':
-            b.ser.write(b' ')
+            b.kill()
         elif cmd:
             b.send(cmd)
         e = b.wait_evt(word, sec)
@@ -180,11 +197,27 @@ def step_safety(b):
     e = ev(' ', 'disarm_cmd'); print(f'   空格急停 → {e}'); ok &= bool(e); res['space_kill'] = e
     # D：未解锁时 takeoff 被拒
     e = ev('takeoff', 'refuse_state'); print(f'   未解锁时 takeoff → {e}'); ok &= bool(e); res['takeoff_when_disarmed'] = e
+    # E：起飞中心跳中断 → 降落 → 触地停桨
+    e = ev('arm', 'armed'); ok &= bool(e)
+    e = ev('takeoff', 'takeoff'); ok &= bool(e)
+    b.hb_on = False; b.evts = []
+    e = b.wait_evt('land_link_lost', 2.0); print(f'   起飞中停止心跳 → {e}'); ok &= bool(e); res['link_lost_in_flight'] = e
+    e = b.wait_evt('landed', 4.0); print(f'     → {e}'); ok &= bool(e); res['link_lost_landed'] = e
+    # F：没有心跳时拒绝解锁
+    time.sleep(0.3)
+    e = ev('arm', 'refuse_link'); print(f'   没有心跳时 arm → {e}'); ok &= bool(e); res['arm_without_link'] = e
+    # G：解锁后（还没出手）心跳中断 → 上锁
+    b.hb_on = True; time.sleep(0.5)
+    e = ev('arm', 'armed'); ok &= bool(e)
+    b.hb_on = False; b.evts = []
+    e = b.wait_evt('disarm_link_lost', 2.0); print(f'   解锁后停止心跳 → {e}'); ok &= bool(e); res['link_lost_armed'] = e
+    b.hb_on = True; time.sleep(0.3)
     rows = b.collect(0.5)
     out_max = max([out_max] + [abs(r['out']) for r in rows])
     print(f'   全程实际写电机的占空比之和最大 {out_max:.3f}（干跑版应恒为 0）')
     ok &= out_max == 0.0
-    return ok, '起飞超时→自动降落→触地停桨、land 指令→触地停桨、空格→立即上锁、未解锁 takeoff 被拒；全程电机输出 0', res
+    return ok, ('起飞超时→自动降落→触地停桨、land 指令→触地停桨、空格→立即上锁、未解锁 takeoff 被拒、'
+                '心跳中断：起飞中→降落→触地停桨 / 无心跳拒绝解锁 / 解锁中→上锁；全程电机输出 0'), res
 
 
 def main():

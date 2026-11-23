@@ -649,3 +649,27 @@ LAND 让目标高度以 0.35 m/s 下降（不需要知道地面高度；目标�
 → IMU 相对机架 roll +1.584°、pitch +0.510°，桌面坡度 (−0.084, −0.310)°，重复性 0.18°。写入 level_trim.h 重新编译烧录后，
 同一位置平放读数 roll −0.096° / pitch −0.318°，与桌面坡度吻合（修正方向正确）；平放电机指令四路 0.764~0.769（修正前右−左 +0.03）。
 按 SIL，未修正的 1.6° 安装倾斜约等于 10 s 内多漂 ~8 m——耀坤原固件"只推油门却大幅水平漂移"的主因之一（另一个是加计零偏未标定）。
+
+## 2026-11-23 · Stage 26: 手机无线控制（Wi-Fi 热点 + 网页 + WebSocket 心跳，链路丢失自动降落）
+
+**为什么**：电机一转 USB 就会被 EMI 复位（`ESP_RST_USB`），飞行时不能靠串口；降落已是全自动，无线只负责解锁 / 起飞 / 提前降落 / 急停 / 看状态。
+
+**代码**：
+- `web_link.c`：SoftAP `YK-FLY-<MAC 后 4 位>`（WPA2，密码 ykfly2026，信道 6，最多 2 台）+ esp_http_server（`/` 网页、`/ws` WebSocket），全部任务固定核 0
+  （`CONFIG_ESP_WIFI_TASK_PINNED_TO_CORE_0`、`CONFIG_LWIP_TCPIP_TASK_AFFINITY_CPU0`、httpd core_id 0）。手机 → 板：`hb <seq>` 每 0.1 s、`cmd arm|takeoff|land|disarm`；
+  板 → 手机：每 0.1 s 一帧 JSON（状态、剩余时间、姿态、高度、电压、四路电机指令、最近 4 条事件、心跳回显与 5 s 内最大间隔）。
+- `flight_core.h`：`fc_link_beat()` / `FC_LINK_TIMEOUT 0.6 s`；`flight_fsm.h`：无链路拒绝解锁（refuse_link）、ARMED 中丢失 → 上锁（disarm_link_lost）、
+  起飞 / 回正 / 悬停中丢失 → 降落（land_link_lost），降落中丢失不影响继续降落。串口 `hb` 也算心跳（桌面测试用），`dryrun.sh` 自动发送。
+- 网页 `main/web/index.html`（EMBED_TXTFILES）：按住 0.6 s 才解锁 / 起飞（防误触），急停按下即连发 3 次，降落点一下；链路断开振动提示；
+  飞行中切后台 / 锁屏先主动发 land。事件环改为固件里 8 条环形缓冲，串口 EVT 与网页日志都不丢事件。
+- 固件体积 0x42200 → 0xDF7C0（含 Wi-Fi，分区剩 40%）。
+
+**验证**：主机单测 51 → 62 项（链路 6 项 + flight_core 心跳超时整链 5 项）全过；网页脚本 node 桩测试 15/15（连接、心跳格式、状态 / 按钮使能、倒计时、
+一帧多事件、急停 3 连发）；SIL 复跑结果不变（抛出 98.4% / 松手 100% / 起飞 100%，128 架，零空中停桨）。
+上板干跑（串口心跳）：起飞超时 → 降落 → 触地停桨、land、急停、未解锁 takeoff 被拒、**起飞中停心跳 → land_link_lost → landed、无心跳 arm → refuse_link、解锁后停心跳 → disarm_link_lost**，电机输出恒 0。
+热点 nmcli 扫描可见（信号 92、信道 6、WPA2）。笔记本不能连热点（远程连接走笔记本 Wi-Fi），网页实机测试待用户用手机完成。
+
+**时序**：开 Wi-Fi 后 1 kHz 控制循环约 1.5% 的周期在 1.1~1.5 ms（之前 4.5 万拍迟到 1 次），最长周期 1507 μs，没有 >2 ms 的；执行最长 553 μs。
+dt 按实测计算、控制 200 Hz，影响可忽略；新增 STATUS period 行与 `timing_probe.py` 监控。
+
+**局限**：手机端实测（延迟、丢包、信号范围、不同浏览器）未做；网页无 HTTPS（浏览器屏幕常亮 API 不可用，需手动调长锁屏时间）。

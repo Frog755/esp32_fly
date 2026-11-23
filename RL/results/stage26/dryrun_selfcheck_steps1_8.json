@@ -1,0 +1,58 @@
+{
+ "port": "/dev/ttyACM0",
+ "time": "2026-11-23 15:46:22",
+ "passed": 2,
+ "total": 2,
+ "steps": [
+  {
+   "step": "平放静止",
+   "ok": true,
+   "rule": "要求 |右−左|、|前−后| < 0.15，PD 模式",
+   "n": 100,
+   "roll": -0.002,
+   "pitch": -0.39999999999999925,
+   "mode": 0.0,
+   "right_minus_left": -0.0008899999999999997,
+   "front_minus_back": -0.007890000000000003,
+   "ccw_minus_cw": -1.000000000000778e-05
+  },
+  {
+   "step": "安全逻辑",
+   "ok": true,
+   "rule": "起飞超时→自动降落→触地停桨、land 指令→触地停桨、空格→立即上锁、未解锁 takeoff 被拒、心跳中断：起飞中→降落→触地停桨 / 无心跳拒绝解锁 / 解锁中→上锁；全程电机输出 0",
+   "arm": "EVT 37811 armed ARMED",
+   "takeoff": "EVT 37911 takeoff TAKEOFF",
+   "takeoff_timeout_then_landed": [
+    "EVT 37911 takeoff TAKEOFF",
+    "EVT 43911 land_takeoff_timeout LAND",
+    "EVT 45216 landed DISARMED"
+   ],
+   "land_cmd": "EVT 46521 land_cmd LAND",
+   "land_cmd_landed": "EVT 47826 landed DISARMED",
+   "space_kill": "EVT 48126 disarm_cmd DISARMED",
+   "takeoff_when_disarmed": "EVT 48226 refuse_state DISARMED",
+   "link_lost_in_flight": "EVT 49036 land_link_lost LAND",
+   "link_lost_landed": "EVT 50341 landed DISARMED",
+   "arm_without_link": "EVT 50726 refuse_link DISARMED",
+   "link_lost_armed": "EVT 51941 disarm_link_lost DISARMED"
+  }
+ ],
+ "out_nonzero_rows": 0,
+ "status_end": {
+  "fw": "flight_v9 (Stage 26 dry-run: phone control)",
+  "motor_output": "0",
+  "motor_pins_level": "0 0 0 0",
+  "state": "DISARMED",
+  "vbatt": "4.175",
+  "calib_valid": "1",
+  "level_trim": "1 1.584 0.510",
+  "gyro_bias_dps": "3.589 -0.795 -0.239",
+  "loops": "47213 late_gt1100us 1224 exec_max_us 570 ctrl200_max_us 439 spi_fail 0",
+  "alt": "z 0.039 vz 0.041 acc_bias -0.080 z_target 0.039 thrust_frac 0.951",
+  "mission": "hold_s 5.0 takeoff_h 0.80 land_v 0.35",
+  "link_ok": "1",
+  "wifi": "on ssid YK-FLY-DC55 phones 0 websockets 0 hb_n 0 gap_max_ms 0",
+  "mapping": "u0->M1(右前,GPIO6) u1->M2(右后,GPIO5) u2->M3(左后,GPIO15) u3->M4(左前,GPIO16)"
+ },
+ "reset_events": []
+}

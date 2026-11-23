@@ -11,6 +11,7 @@
 #include "flight_fsm.h"
 #include "alt_est.h"
 #include "motor_out.h"
+#include "flight_core.h"
 
 static int n_pass, n_fail;
 #define CHECK(cond, ...) do { if (cond) { n_pass++; printf("  ✓ "); } else { n_fail++; printf("  ✗ "); } printf(__VA_ARGS__); printf("\n"); } while (0)
@@ -72,7 +73,7 @@ static void test_controller(void)
 static fsm_in_t ok_in(void)
 {
     fsm_in_t in = {.vbatt = 4.1f, .acc_norm_g = 1.0f, .r22 = 1.0f, .w_norm = 0.0f, .gate_k = 2.0f, .z = 1.0f, .vz = 0.0f,
-                   .thrust_frac = 1.0f, .est_ok = 1};
+                   .thrust_frac = 1.0f, .est_ok = 1, .link_ok = 1};
     return in;
 }
 static fsm_event_t run_for(fsm_t *f, fsm_in_t in, float sec, fsm_event_t *first)
@@ -171,6 +172,21 @@ static void test_fsm(void)
     CHECK(e == FSM_EV_REFUSE_STATE && f.st == FSM_LAND, "飞行中 takeoff / arm 被忽略");
     holding(&f); in = ok_in(); in.est_ok = 0; e = fsm_step(&f, FSM_CMD_NONE, &in, 0.005f);
     CHECK(e == FSM_EV_EST_FAIL && f.st == FSM_DISARMED, "飞行中估计器失效 → 立即停桨");
+    /* 遥控链路 */
+    fsm_init(&f); in = ok_in(); in.link_ok = 0; e = fsm_step(&f, FSM_CMD_ARM, &in, 0.005f);
+    CHECK(e == FSM_EV_REFUSE_LINK && f.st == FSM_DISARMED, "没有遥控链路拒绝解锁");
+    armed(&f); in = ok_in(); in.link_ok = 0; e = fsm_step(&f, FSM_CMD_NONE, &in, 0.005f);
+    CHECK(e == FSM_EV_DISARM_LINK && f.st == FSM_DISARMED, "解锁后（还没出手）链路丢失 → 上锁");
+    holding(&f); in = ok_in(); in.link_ok = 0; e = fsm_step(&f, FSM_CMD_NONE, &in, 0.005f);
+    CHECK(e == FSM_EV_LAND_LINK && f.st == FSM_LAND, "悬停中链路丢失 → 降落（不在空中停桨）");
+    run_for(&f, in, 2.0f, &first);
+    CHECK(f.st == FSM_LAND, "降落中链路一直丢失 → 继续降落");
+    in.thrust_frac = 0.3f; run_for(&f, in, 1.0f, &first);
+    CHECK(f.st == FSM_DISARMED && first == FSM_EV_LANDED, "链路丢失也照常触地停桨");
+    armed(&f); in = ok_in(); in.z = 0.0f; fsm_step(&f, FSM_CMD_TAKEOFF, &in, 0.005f); in.link_ok = 0;
+    e = fsm_step(&f, FSM_CMD_NONE, &in, 0.005f);
+    CHECK(e == FSM_EV_LAND_LINK && f.st == FSM_LAND, "起飞中链路丢失 → 降落");
+
     holding(&f); in = ok_in(); in.est_ok = 0; in.vbatt = NAN; in.acc_norm_g = 0.1f;
     e = fsm_step(&f, FSM_CMD_DISARM, &in, 0.005f);
     CHECK(e == FSM_EV_DISARM_CMD && f.st == FSM_DISARMED && !fsm_motors_on(&f), "disarm 指令在任何输入下都立即生效");
@@ -204,11 +220,42 @@ static void test_alt(void)
     }
 }
 
+/* ---------------- 4. flight_core 心跳超时（整链：估计 + 状态机） ---------------- */
+static fc_t s_c; static int s_k; static uint32_t s_seq; static uint8_t s_ev;
+static void core_run(float sec, int beat)
+{
+    static const float a0[3] = {0, 0, 9.81f}, w0[3] = {0, 0, 0};
+    int n = (int)(sec * 1000.0f + 0.5f);
+    for (int i = 0; i < n; i++, s_k++) {
+        if (beat && s_k % 100 == 0) fc_link_beat(&s_c);
+        fc_step(&s_c, a0, w0, 0.001f, 1, s_k % 20 == 0, 0.0f, 0.02f, 4.1f);
+        if (s_c.ev_seq != s_seq) { s_seq = s_c.ev_seq; s_ev = s_c.ev_last; }
+    }
+}
+static void test_core_link(void)
+{
+    printf("[4] flight_core 遥控心跳超时（静止 IMU 输入，手机每 0.1 s 一次心跳）\n");
+    const float a0[3] = {0, 0, 9.81f};
+    fc_init(&s_c, a0); s_k = 0; s_seq = 0; s_ev = 0;
+    core_run(0.5f, 1); fc_command(&s_c, FSM_CMD_ARM); core_run(0.1f, 1);
+    CHECK(s_c.fsm.st == FSM_ARMED, "有心跳 → 解锁成功（状态 %s，事件 %s）", FSM_STATE_NAME[s_c.fsm.st], FSM_EV_NAME[s_ev]);
+    fc_command(&s_c, FSM_CMD_TAKEOFF); core_run(0.5f, 1);
+    CHECK(s_c.fsm.st == FSM_TAKEOFF, "takeoff → TAKEOFF（状态 %s）", FSM_STATE_NAME[s_c.fsm.st]);
+    core_run(0.45f, 0);                                    /* 上一次心跳在 0.1 s 前 → 心跳间隔 0.55 s */
+    CHECK(s_c.fsm.st == FSM_TAKEOFF, "心跳间隔 0.55 s 仍在起飞（偶尔丢几个包不误判）（状态 %s）", FSM_STATE_NAME[s_c.fsm.st]);
+    core_run(0.1f, 0);
+    CHECK(s_c.fsm.st == FSM_LAND && s_ev == FSM_EV_LAND_LINK, "心跳间隔超过 0.6 s → 链路丢失 → 降落（状态 %s，事件 %s）", FSM_STATE_NAME[s_c.fsm.st], FSM_EV_NAME[s_ev]);
+    fc_init(&s_c, a0); s_seq = 0; s_ev = 0;
+    core_run(0.5f, 0); fc_command(&s_c, FSM_CMD_ARM); core_run(0.1f, 0);
+    CHECK(s_c.fsm.st == FSM_DISARMED && s_ev == FSM_EV_REFUSE_LINK, "上电后从没收到心跳 → 拒绝解锁（事件 %s）", FSM_EV_NAME[s_ev]);
+}
+
 int main(void)
 {
     test_controller();
     test_fsm();
     test_alt();
+    test_core_link();
     printf("\n通过 %d / %d\n", n_pass, n_pass + n_fail);
     return n_fail ? 1 : 0;
 }

@@ -1,5 +1,5 @@
 /**
- * flight_main.c —— 耀坤 K1.0 正式飞控（Stage 24：干跑版，电机驱动不编译进固件）
+ * flight_main.c —— 耀坤 K1.0 正式飞控（Stage 26：干跑版 + 手机无线控制；电机驱动不编译进固件）
  *
  * ★ 安全：默认 FLIGHT_MOTOR_OUTPUT=0 —— 不含任何 LEDC / PWM 代码，上电第一件事把 4 个电机引脚拉低并 gpio_hold 锁存；
  *   控制器、安全状态机照常运行，算出的电机指令只通过串口输出（"F" 行），用于在不转电机的前提下核对整条链路方向。
@@ -10,6 +10,8 @@
  *   baro  核 0，50 Hz：BMP280 → 相对高度；每 5 次读一次电池电压（10 Hz）
  *   cli   核 0：串口指令 arm / takeoff（= go）/ land / disarm / status（空格或 k = 立即 disarm）
  *   telem 核 0，50 Hz：输出 "F" 行与 "EVT" 事件行
+ *   web   核 0：Wi-Fi 热点 YK-FLY-xxxx + 网页 http://192.168.4.1 + WebSocket（web_link.c）；手机每 0.1 s 心跳，
+ *         心跳（手机或串口 "hb"）超时 0.6 s = 链路丢失 → 飞行中降落 / 解锁中上锁 / 不能解锁
  *
  * 串口格式：
  *   F t_ms state mode roll pitch yaw wz_dps z vz vbatt gate_k u_M1 u_M2 u_M3 u_M4 out_sum z_target thrust_frac
@@ -31,8 +33,9 @@
 #include "yk_board.h"            /* 驱动（含 mahony_gated.h、imu_calib.h） */
 #include "flight_core.h"         /* 估计 + 状态机 + v9 控制器（纯 C，仿真共用） */
 #include "motor_out.h"
+#include "web_link.h"
 
-#define FW_NAME "flight_v9 (Stage 25 dry-run: recover-hold-land)"
+#define FW_NAME "flight_v9 (Stage 26 dry-run: phone control)"
 #define R2D 57.29578f
 
 /* ---------------- 共享状态 ---------------- */
@@ -41,14 +44,18 @@ typedef struct {
     float q[4], w[3], k, anorm_g;
     float z, vz, ab, vbatt, z_target, thrust_frac;
     float u_cmd[4], out_sum;
-    uint8_t st, mode;
-    uint32_t ev_seq; uint8_t ev; float ev_t;
+    uint8_t st, mode, link_ok;
+    float t_state;
+    uint32_t ev_seq;                              /* 事件环：ev_ring[seq % 8] */
+    struct { uint32_t seq; uint8_t ev, st; uint32_t t_ms; } ev_ring[8];
     uint32_t loops, late, exec_max_us, ctrl_max_us, spi_fail;
+    uint32_t late15, late20, late50, period_max_us;   /* 周期 >1.5 / >2 / >5 ms 次数、最长周期 */
 } snap_t;
 
 static snap_t s_snap;
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
-static int s_cmd = FSM_CMD_NONE;                 /* cli → ctrl（原子交换取走） */
+static int s_cmd = FSM_CMD_NONE;                 /* cli / web → ctrl（原子交换取走） */
+static uint32_t s_link_seq = 0;                  /* 每收到一次心跳（手机 / 串口 hb）+1 */
 static volatile float s_vbatt = NAN;             /* baro → ctrl */
 static volatile uint32_t s_vbatt_seq = 0;
 static volatile float s_baro_z = 0;              /* baro → ctrl */
@@ -89,6 +96,8 @@ static void ctrl_task(void *arg)
     (void)arg;
     static fc_t fc;
     fc_init(&fc, s_a0_body);
+    uint32_t link_seen = __atomic_load_n(&s_link_seq, __ATOMIC_SEQ_CST);
+    uint32_t late15 = 0, late20 = 0, late50 = 0, period_max = 0;
     uint32_t baro_seen = s_baro_seq, vb_seen = s_vbatt_seq, loops = 0, late = 0, exec_max = 0, ctrl_max = 0, spi_fail = 0;
     int64_t prev = esp_timer_get_time(), last_baro_t = s_baro_t_us;
     imu_raw_t r; float a[3], g[3];
@@ -98,8 +107,13 @@ static void ctrl_task(void *arg)
         vTaskDelayUntil(&last, 1);
         const int64_t now = esp_timer_get_time();
         const uint32_t c0 = esp_cpu_get_cycle_count();
-        float dt = (now - prev) * 1e-6f; prev = now;
-        if (dt > 1100e-6f) late++;
+        const uint32_t per = (uint32_t)(now - prev);
+        float dt = per * 1e-6f; prev = now;
+        if (per > 1100) late++;
+        if (per > 1500) late15++;
+        if (per > 2000) late20++;
+        if (per > 5000) late50++;
+        if (loops > 10 && per > period_max) period_max = per;
         if (dt > 0.005f) dt = 0.005f;
         loops++;
 
@@ -120,6 +134,8 @@ static void ctrl_task(void *arg)
         if (vs != vb_seen) { vb = s_vbatt; vb_seen = vs; }
         const int cmd = __atomic_exchange_n(&s_cmd, FSM_CMD_NONE, __ATOMIC_SEQ_CST);
         fc_command(&fc, (fsm_cmd_t)cmd);
+        const uint32_t ls = __atomic_load_n(&s_link_seq, __ATOMIC_SEQ_CST);
+        if (ls != link_seen) { fc_link_beat(&fc); link_seen = ls; }
 
         const uint32_t cc0 = esp_cpu_get_cycle_count();
         const int ticked = fc_step(&fc, a, g, dt, !raw_zero, baro_new, baro_z, baro_dt, vb);
@@ -135,10 +151,16 @@ static void ctrl_task(void *arg)
         s_snap.t_us = now; memcpy(s_snap.q, fc.mg.q, sizeof(fc.mg.q)); memcpy(s_snap.w, g, sizeof(s_snap.w));
         s_snap.k = fc.k; s_snap.anorm_g = fc.anorm_g; s_snap.z = fc.alt.z; s_snap.vz = fc.alt.vz; s_snap.ab = fc.alt.ab;
         s_snap.vbatt = fc.vbatt; s_snap.z_target = fc.fsm.z_target; s_snap.thrust_frac = fc.thrust_frac;
-        s_snap.st = (uint8_t)fc.fsm.st; s_snap.mode = fc.mode;
+        s_snap.st = (uint8_t)fc.fsm.st; s_snap.mode = fc.mode; s_snap.link_ok = (uint8_t)fc_link_ok(&fc); s_snap.t_state = fc.fsm.t_state;
         memcpy(s_snap.u_cmd, fc.u_cmd, sizeof(fc.u_cmd));
         s_snap.out_sum = FLIGHT_MOTOR_OUTPUT ? (fc.u_out[0] + fc.u_out[1] + fc.u_out[2] + fc.u_out[3]) : 0.0f;
-        if (fc.ev_seq != s_snap.ev_seq) { s_snap.ev_seq = fc.ev_seq; s_snap.ev = fc.ev_last; s_snap.ev_t = now * 1e-6f; }
+        if (fc.ev_seq != s_snap.ev_seq) {
+            s_snap.ev_seq = fc.ev_seq;
+            const int i = (int)(fc.ev_seq % 8u);
+            s_snap.ev_ring[i].seq = fc.ev_seq; s_snap.ev_ring[i].ev = fc.ev_last; s_snap.ev_ring[i].st = (uint8_t)fc.fsm.st;
+            s_snap.ev_ring[i].t_ms = (uint32_t)(now / 1000);
+        }
+        s_snap.late15 = late15; s_snap.late20 = late20; s_snap.late50 = late50; s_snap.period_max_us = period_max;
         s_snap.loops = loops; s_snap.late = late; s_snap.exec_max_us = exec_max; s_snap.ctrl_max_us = ctrl_max; s_snap.spi_fail = spi_fail;
         portEXIT_CRITICAL(&s_mux);
     }
@@ -169,6 +191,12 @@ static void print_status(void)
            (unsigned long)s.late, (unsigned long)s.exec_max_us, (unsigned long)s.ctrl_max_us, (unsigned long)s.spi_fail);
     printf("STATUS alt z %.3f vz %.3f acc_bias %.3f z_target %.3f thrust_frac %.3f\n", s.z, s.vz, s.ab, s.z_target, s.thrust_frac);
     printf("STATUS mission hold_s %.1f takeoff_h %.2f land_v %.2f\n", FSM_HOLD_S, FSM_TAKEOFF_H, FSM_LAND_V);
+    web_stats_t w; web_link_stats(&w);
+    printf("STATUS period late_gt1500us %lu late_gt2000us %lu late_gt5000us %lu period_max_us %lu\n", (unsigned long)s.late15,
+           (unsigned long)s.late20, (unsigned long)s.late50, (unsigned long)s.period_max_us);
+    printf("STATUS link_ok %d\n", s.link_ok);
+    printf("STATUS wifi %s ssid %s phones %d websockets %d hb_n %lu gap_max_ms %lu\n", w.started ? "on" : "off", w.ssid, w.n_sta, w.n_ws,
+           (unsigned long)w.hb_n, (unsigned long)w.gap_all_ms);
     printf("STATUS mapping");
     for (int i = 0; i < 4; i++) printf(" u%d->%s(%s,GPIO%d)", i, MOT_NAME_SIM[i], MOT_POS_SIM[i], MOT_PIN_SIM[i]);
     printf("\nSTATUS_END\n");
@@ -183,14 +211,53 @@ static void telem_task(void *arg)
         vTaskDelayUntil(&last, pdMS_TO_TICKS(20));
         snap_t s; portENTER_CRITICAL(&s_mux); s = s_snap; portEXIT_CRITICAL(&s_mux);
         if (s.ev_seq != ev_seen) {
+            const uint32_t from = (s.ev_seq - ev_seen > 8u) ? s.ev_seq - 7u : ev_seen + 1u;
+            for (uint32_t q = from; q <= s.ev_seq; q++) {
+                const int i = (int)(q % 8u);
+                if (s.ev_ring[i].seq != q) continue;
+                printf("EVT %lu %s %s\n", (unsigned long)s.ev_ring[i].t_ms, FSM_EV_NAME[s.ev_ring[i].ev], FSM_STATE_NAME[s.ev_ring[i].st]);
+            }
             ev_seen = s.ev_seq;
-            printf("EVT %lld %s %s\n", (long long)(s.ev_t * 1000.0f), FSM_EV_NAME[s.ev], FSM_STATE_NAME[s.st]);
         }
         float ro, pi, ya; euler(s.q, &ro, &pi, &ya);
         printf("F %lld %d %d %.1f %.1f %.1f %.1f %.3f %.3f %.2f %.2f %.3f %.3f %.3f %.3f %.3f %.3f %.2f\n", (long long)(s.t_us / 1000),
                s.st, s.mode, ro, pi, ya, s.w[2] * R2D, s.z, s.vz, s.vbatt, s.k,
                s.u_cmd[0], s.u_cmd[1], s.u_cmd[2], s.u_cmd[3], s.out_sum, s.z_target, s.thrust_frac);
     }
+}
+
+/* ---------------- 手机网页回调（核 0，httpd / 遥测任务里调用） ---------------- */
+static int web_on_cmd(const char *c)
+{
+    if (!strcmp(c, "disarm")) post_cmd(FSM_CMD_DISARM);
+    else if (!strcmp(c, "arm")) post_cmd(FSM_CMD_ARM);
+    else if (!strcmp(c, "takeoff")) post_cmd(FSM_CMD_TAKEOFF);
+    else if (!strcmp(c, "land")) post_cmd(FSM_CMD_LAND);
+    else return 0;
+    return 1;
+}
+static void web_on_beat(void) { __atomic_add_fetch(&s_link_seq, 1, __ATOMIC_SEQ_CST); }
+static float fin(float x) { return isfinite(x) ? x : 0.0f; }
+static int web_build_json(char *b, size_t n)
+{
+    snap_t s; portENTER_CRITICAL(&s_mux); s = s_snap; portEXIT_CRITICAL(&s_mux);
+    web_stats_t w; web_link_stats(&w);
+    float ro, pi, ya; euler(s.q, &ro, &pi, &ya);
+    int len = snprintf(b, n, "{\"st\":%d,\"ts\":%.2f,\"mode\":%d,\"r\":%.1f,\"p\":%.1f,\"y\":%.1f,\"z\":%.2f,\"vz\":%.2f,\"zt\":%.2f,"
+                       "\"vb\":%.2f,\"k\":%.2f,\"u\":[%.3f,%.3f,%.3f,%.3f],\"out\":%.3f,\"mo\":%d,\"lk\":%d,\"hb\":%lu,\"gap\":%lu,\"evs\":%lu,\"ev\":\"%s\",\"evl\":[",
+                       s.st, fin(s.t_state), s.mode, fin(ro), fin(pi), fin(ya), fin(s.z), fin(s.vz), fin(s.z_target), fin(s.vbatt), fin(s.k),
+                       fin(s.u_cmd[0]), fin(s.u_cmd[1]), fin(s.u_cmd[2]), fin(s.u_cmd[3]), fin(s.out_sum), FLIGHT_MOTOR_OUTPUT, s.link_ok,
+                       (unsigned long)w.hb_seq, (unsigned long)w.gap_win_ms, (unsigned long)s.ev_seq,
+                       s.ev_seq ? FSM_EV_NAME[s.ev_ring[s.ev_seq % 8u].ev] : "");
+    int first = 1;
+    for (uint32_t q = (s.ev_seq > 3u ? s.ev_seq - 3u : 1u); q <= s.ev_seq && len < (int)n - 64; q++) {
+        const int i = (int)(q % 8u);
+        if (s.ev_ring[i].seq != q) continue;
+        len += snprintf(b + len, n - len, "%s[%lu,\"%s\"]", first ? "" : ",", (unsigned long)q, FSM_EV_NAME[s.ev_ring[i].ev]);
+        first = 0;
+    }
+    len += snprintf(b + len, n - len, "]}");
+    return len;
 }
 
 /* ---------------- 串口指令（核 0） ---------------- */
@@ -211,7 +278,8 @@ static void cli_task(void *arg)
                 else if (!strcmp(line, "takeoff") || !strcmp(line, "go")) post_cmd(FSM_CMD_TAKEOFF);
                 else if (!strcmp(line, "land")) post_cmd(FSM_CMD_LAND);
                 else if (!strcmp(line, "status")) print_status();
-                else if (line[0]) printf("CLI unknown '%s'（可用：arm / takeoff / land / disarm / status；空格或 k = 立即 disarm）\n", line);
+                else if (!strcmp(line, "hb")) __atomic_add_fetch(&s_link_seq, 1, __ATOMIC_SEQ_CST);   /* 串口心跳（桌面测试用） */
+                else if (line[0]) printf("CLI unknown '%s'（可用：arm / takeoff / land / disarm / status / hb；空格或 k = 立即 disarm）\n", line);
             } else if (n < (int)sizeof(line) - 1) line[n++] = c;
         }
     }
@@ -281,6 +349,8 @@ void app_main(void)
     printf("BOOT gyro_calib 开始：请保持飞机静止 2 秒\n");
     gyro_calibrate();
     motor_out_init();
+    static const web_cb_t wcb = {.on_cmd = web_on_cmd, .on_beat = web_on_beat, .build_json = web_build_json};
+    web_link_start(&wcb);
 
     xTaskCreatePinnedToCore(baro_task, "baro", 4096, NULL, 6, NULL, 0);
     vTaskDelay(pdMS_TO_TICKS(60));

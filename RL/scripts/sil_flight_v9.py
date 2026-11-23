@@ -25,8 +25,8 @@ FW = os.path.join(ROOT, 'code', 'flight_v9', 'main')
 INC = [FW, os.path.join(ROOT, 'code', 'connection_test', 'main')]
 ST = ['DISARMED', 'ARMED', 'TAKEOFF', 'RECOVER', 'HOLD', 'LAND']
 EV = ["none", "armed", "launch", "takeoff", "stable_hold", "land_auto", "land_cmd", "land_low_voltage", "land_recover_timeout",
-      "land_takeoff_timeout", "land_flight_timeout", "landed", "disarm_cmd", "arm_timeout", "land_timeout_kill", "impact",
-      "estimator_fail", "refuse_vbatt", "refuse_tilt", "refuse_estimator", "refuse_state"]
+      "land_takeoff_timeout", "land_flight_timeout", "land_link_lost", "landed", "disarm_cmd", "arm_timeout", "land_timeout_kill",
+      "impact", "estimator_fail", "refuse_vbatt", "refuse_tilt", "refuse_estimator", "refuse_state", "disarm_link_lost", "refuse_link"]
 CMD = dict(none=0, arm=1, disarm=2, takeoff=3, land=4)
 
 WRAP = r'''
@@ -45,6 +45,7 @@ void sil_step(int n, const float *a, const float *g, float dt, const unsigned ch
               const float *vb, float *u, unsigned char *st, unsigned char *ev, float *est) {
     for (int i = 0; i < n; i++) {
         fc_t *c = &C[i];
+        fc_link_beat(c);                                    /* 仿真里遥控链路一直在线 */
         fc_step(c, a + 3 * i, g + 3 * i, dt, 1, bn[i], bz[i], bdt[i], vb[i]);
         for (int j = 0; j < 4; j++) u[4 * i + j] = c->u_out[j];
         st[i] = (unsigned char)c->fsm.st; ev[i] = c->ev_last;

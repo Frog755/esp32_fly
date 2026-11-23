@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>YK 飞控</title>
+<style>
+*{box-sizing:border-box;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
+body{margin:0;font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:#111;color:#eee;padding:10px;touch-action:manipulation}
+.row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.badge{padding:6px 10px;border-radius:8px;font-weight:700;font-size:18px}
+#st{flex:1;text-align:center;font-size:24px}
+#link{font-size:14px}
+#hint{background:#1d1d1d;border-radius:8px;padding:10px;font-size:15px;line-height:1.4;margin-bottom:8px;min-height:44px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:8px}
+.cell{background:#1d1d1d;border-radius:8px;padding:6px;text-align:center}
+.cell b{display:block;font-size:20px;font-variant-numeric:tabular-nums}
+.cell span{font-size:12px;color:#999}
+#bars{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:8px}
+.bar{background:#1d1d1d;border-radius:8px;height:64px;position:relative;overflow:hidden}
+.bar i{position:absolute;left:0;right:0;bottom:0;background:#3a7bd5}
+.bar em{position:absolute;left:0;right:0;top:4px;text-align:center;font-style:normal;font-size:12px;color:#ccc}
+#mo{font-size:13px;text-align:center;margin-bottom:8px;padding:6px;border-radius:8px}
+.btns{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px}
+button{font-size:19px;font-weight:700;border:0;border-radius:12px;padding:18px 4px;color:#fff;position:relative;overflow:hidden;touch-action:none}
+button:disabled{opacity:.3}
+button .fill{position:absolute;left:0;top:0;bottom:0;width:0;background:rgba(255,255,255,.35)}
+button span{position:relative}
+#arm{background:#2e7d32}#tko{background:#1565c0}#land{background:#ef6c00}
+#kill{width:100%;background:#c62828;font-size:30px;padding:26px 0;margin-bottom:8px}
+#log{background:#1d1d1d;border-radius:8px;padding:8px;font-size:13px;line-height:1.5;max-height:180px;overflow:auto;color:#bbb}
+</style>
+</head>
+<body>
+<div class="row">
+  <div id="st" class="badge">连接中…</div>
+</div>
+<div class="row" style="justify-content:space-between">
+  <div id="link" class="badge">链路 —</div>
+  <div id="vb" class="badge">— V</div>
+</div>
+<div id="hint">正在连接飞机……</div>
+<div class="grid">
+  <div class="cell"><b id="r">—</b><span>roll °</span></div>
+  <div class="cell"><b id="p">—</b><span>pitch °</span></div>
+  <div class="cell"><b id="y">—</b><span>yaw °</span></div>
+  <div class="cell"><b id="z">—</b><span>高度 m</span></div>
+  <div class="cell"><b id="vz">—</b><span>升降 m/s</span></div>
+  <div class="cell"><b id="zt">—</b><span>目标高度 m</span></div>
+</div>
+<div id="bars">
+  <div class="bar"><i id="u3"></i><em>M4 左前</em></div>
+  <div class="bar"><i id="u0"></i><em>M1 右前</em></div>
+  <div class="bar"><i id="u2"></i><em>M3 左后</em></div>
+  <div class="bar"><i id="u1"></i><em>M2 右后</em></div>
+</div>
+<div id="mo">—</div>
+<div class="btns">
+  <button id="arm" data-hold="arm"><div class="fill"></div><span>按住解锁</span></button>
+  <button id="tko" data-hold="takeoff"><div class="fill"></div><span>按住起飞</span></button>
+  <button id="land"><span>降落</span></button>
+</div>
+<button id="kill"><span>急 停</span></button>
+<div id="log"></div>
+<script>
+const ST = ['未解锁', '已解锁', '起飞', '回正', '悬停', '降落'];
+const STC = ['#555', '#f9a825', '#1565c0', '#8e24aa', '#2e7d32', '#ef6c00'];
+const EVN = {
+  armed: '已解锁', launch: '检测到出手 → 回正', takeoff: '起飞', stable_hold: '已稳定 → 悬停',
+  land_auto: '悬停满 5 s → 自动降落', land_cmd: '手动降落', land_low_voltage: '电压低 → 降落',
+  land_recover_timeout: '回正超时 → 降落', land_takeoff_timeout: '起飞超时 → 降落', land_flight_timeout: '飞行超时 → 降落',
+  land_link_lost: '链路丢失 → 降落', landed: '触地 → 停桨', disarm_cmd: '急停 / 上锁', arm_timeout: '解锁 20 s 未出手 → 上锁',
+  land_timeout_kill: '降落超时 → 停桨', impact: '撞击 → 停桨', estimator_fail: '传感器失效 → 停桨',
+  refuse_vbatt: '拒绝解锁：电压低', refuse_tilt: '拒绝解锁：没放平', refuse_estimator: '拒绝解锁：没放稳 / 传感器异常',
+  refuse_state: '当前状态不能这样操作', disarm_link_lost: '链路丢失 → 上锁', refuse_link: '拒绝解锁：没有链路'
+};
+const $ = id => document.getElementById(id);
+let ws = null, seq = 0, sent = {}, rtt = null, lastRx = 0, evSeen = -1, d = null, buzzed = false;
+
+function connect() {
+  ws = new WebSocket('ws://' + location.host + '/ws');
+  ws.onmessage = e => { try { d = JSON.parse(e.data); } catch (x) { return; } lastRx = performance.now();
+    if (sent[d.hb] !== undefined) rtt = performance.now() - sent[d.hb]; render(); };
+  ws.onclose = () => { ws = null; setTimeout(connect, 400); };
+  ws.onerror = () => { try { ws.close(); } catch (x) {} };
+}
+function send(t) { if (ws && ws.readyState === 1) ws.send(t); }
+function cmd(c) { send('cmd ' + c); }
+setInterval(() => { seq++; sent[seq] = performance.now(); delete sent[seq - 100]; send('hb ' + seq); }, 100);
+
+function log(t) { const l = $('log'); const s = new Date().toTimeString().slice(0, 8); l.innerHTML = '<div>' + s + '  ' + t + '</div>' + l.innerHTML; }
+function f(x, n) { return (x === undefined || x === null || isNaN(x)) ? '—' : Number(x).toFixed(n); }
+
+function render() {
+  if (!d) return;
+  const st = d.st;
+  $('st').textContent = ST[st] || '?'; $('st').style.background = STC[st] || '#555';
+  $('vb').textContent = f(d.vb, 2) + ' V'; $('vb').style.background = d.vb < 3.6 ? '#c62828' : '#333';
+  $('r').textContent = f(d.r, 1); $('p').textContent = f(d.p, 1); $('y').textContent = f(d.y, 0);
+  $('z').textContent = f(d.z, 2); $('vz').textContent = f(d.vz, 2); $('zt').textContent = st >= 2 ? f(d.zt, 2) : '—';
+  for (let i = 0; i < 4; i++) $('u' + i).style.height = Math.max(0, Math.min(1, d.u[i])) * 100 + '%';
+  $('mo').textContent = d.mo ? '⚠ 电机驱动已启用：电机会真转' : '干跑版：电机驱动未编译，电机不会转（条形图是控制器算出的指令）';
+  $('mo').style.background = d.mo ? '#c62828' : '#263238';
+  const ts = d.ts;
+  const H = [
+    '把飞机放平、静止，然后按住「解锁」。',
+    '已解锁（电机还不转）：松手 / 抛出即开始回正，或按住「起飞」。' + f(Math.max(0, 20 - ts), 0) + ' 秒后自动上锁。',
+    '起飞中：升到起飞点上方 0.8 m 后悬停。',
+    '回正中……',
+    '悬停中：' + f(Math.max(0, 5 - ts), 1) + ' 秒后自动降落。',
+    '降落中：触地后自动停桨。'];
+  $('hint').textContent = H[st] || '';
+  $('arm').disabled = st !== 0; $('tko').disabled = st !== 1; $('land').disabled = st < 2 || st === 5;
+  if (d.evl) { for (const [q, n] of d.evl) { if (q > evSeen) { if (evSeen >= 0 || q === d.evs) log(EVN[n] || n); } } evSeen = Math.max(evSeen, d.evs); }
+}
+
+setInterval(() => {
+  const age = performance.now() - lastRx;
+  const ok = ws && ws.readyState === 1 && age < 700;
+  $('link').textContent = ok ? ('链路正常 ' + (rtt === null ? '' : Math.round(rtt) + ' ms')) + (d && d.gap ? ' · 最大间隔 ' + d.gap + ' ms' : '') : '链路断开';
+  $('link').style.background = ok ? (d && d.gap > 400 ? '#f9a825' : '#2e7d32') : '#c62828';
+  if (!ok && !buzzed) { buzzed = true; if (navigator.vibrate) navigator.vibrate([200, 100, 200]); if (lastRx) log('链路断开（飞机会自动降落 / 上锁）'); }
+  if (ok) buzzed = false;
+}, 200);
+
+/* 急停：按下立刻发送，连发 3 次 */
+$('kill').addEventListener('pointerdown', e => { e.preventDefault(); cmd('disarm'); setTimeout(() => cmd('disarm'), 60); setTimeout(() => cmd('disarm'), 150); });
+$('land').addEventListener('pointerdown', e => { e.preventDefault(); if (!$('land').disabled) cmd('land'); });
+/* 解锁 / 起飞：按住 0.6 s 才发送，防误触 */
+document.querySelectorAll('[data-hold]').forEach(b => {
+  let t0 = 0, raf = 0;
+  const fill = b.querySelector('.fill');
+  const stop = () => { t0 = 0; cancelAnimationFrame(raf); fill.style.width = '0'; };
+  const tick = () => { if (!t0) return; const k = (performance.now() - t0) / 600; fill.style.width = Math.min(1, k) * 100 + '%';
+    if (k >= 1) { cmd(b.dataset.hold); stop(); } else raf = requestAnimationFrame(tick); };
+  b.addEventListener('pointerdown', e => { e.preventDefault(); if (b.disabled) return; t0 = performance.now(); raf = requestAnimationFrame(tick); });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(n => b.addEventListener(n, stop));
+});
+document.addEventListener('contextmenu', e => e.preventDefault());
+document.addEventListener('visibilitychange', () => { if (document.hidden && d && d.st >= 2) cmd('land'); });   /* 飞行中切到后台 / 锁屏：先主动发降落 */
+connect();
+</script>
+</body>
+</html>

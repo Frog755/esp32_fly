@@ -10,7 +10,9 @@
  *
  * 只在 TAKEOFF / RECOVER / HOLD / LAND 四个状态输出电机（fsm_motors_on）。
  * 停桨（→ DISARMED）：disarm 指令（任何状态立即生效）、触地、撞击 >6 g、估计器失效、LAND 超过 20 s、ARMED 20 s 未出手。
- * 转入降落（不停桨，空中停桨等于摔机）：悬停满 5 s、land 指令、低电压、回正 4 s 未稳定、起飞 6 s 未到高度、通电飞行累计 40 s。
+ * 转入降落（不停桨，空中停桨等于摔机）：悬停满 5 s、land 指令、低电压、回正 4 s 未稳定、起飞 6 s 未到高度、通电飞行累计 40 s、
+ *   遥控链路丢失（手机心跳超时，见 flight_core.h FC_LINK_TIMEOUT；LAND 中丢失不影响继续降落）。
+ * 链路：解锁必须有链路；ARMED 中链路丢失 → 上锁（还没出手，最安全的处理）。
  * "稳定"判据与仿真评测一致（vec_recovery_env.STABLE_CRIT）：机体 z 轴夹角 <18°、|ω| <1.2 rad/s、|vz| <0.5 m/s。
  */
 #ifndef FLIGHT_FSM_H
@@ -58,18 +60,22 @@ typedef enum {
     FSM_EV_NONE = 0,
     FSM_EV_ARMED, FSM_EV_LAUNCH, FSM_EV_TAKEOFF, FSM_EV_STABLE,
     FSM_EV_LAND_AUTO, FSM_EV_LAND_CMD, FSM_EV_LAND_LOWV, FSM_EV_LAND_RECOVER_TO, FSM_EV_LAND_TAKEOFF_TO, FSM_EV_LAND_ACTIVE_TO,
+    FSM_EV_LAND_LINK,
     FSM_EV_LANDED,
     FSM_EV_DISARM_CMD, FSM_EV_ARM_TIMEOUT, FSM_EV_LAND_TIMEOUT, FSM_EV_IMPACT, FSM_EV_EST_FAIL,
     FSM_EV_REFUSE_VBAT, FSM_EV_REFUSE_TILT, FSM_EV_REFUSE_EST, FSM_EV_REFUSE_STATE,
+    FSM_EV_DISARM_LINK, FSM_EV_REFUSE_LINK,
     FSM_EV__N
 } fsm_event_t;
 
 static const char *const FSM_EV_NAME[FSM_EV__N] = {
     "none", "armed", "launch", "takeoff", "stable_hold",
     "land_auto", "land_cmd", "land_low_voltage", "land_recover_timeout", "land_takeoff_timeout", "land_flight_timeout",
+    "land_link_lost",
     "landed",
     "disarm_cmd", "arm_timeout", "land_timeout_kill", "impact", "estimator_fail",
-    "refuse_vbatt", "refuse_tilt", "refuse_estimator", "refuse_state"};
+    "refuse_vbatt", "refuse_tilt", "refuse_estimator", "refuse_state",
+    "disarm_link_lost", "refuse_link"};
 static const char *const FSM_STATE_NAME[FSM__NST] = {"DISARMED", "ARMED", "TAKEOFF", "RECOVER", "HOLD", "LAND"};
 
 typedef struct {
@@ -81,6 +87,7 @@ typedef struct {
     float z, vz;        /* 竖直估计 m、m/s */
     float thrust_frac;  /* 上一拍控制器总推力 / 重力 */
     int   est_ok;       /* IMU 读数正常、四元数有限、气压计有数据 */
+    int   link_ok;      /* 遥控链路（手机心跳 / 串口心跳）在线 */
 } fsm_in_t;
 
 typedef struct {
@@ -122,6 +129,7 @@ static inline fsm_event_t fsm_step(fsm_t *f, fsm_cmd_t cmd, const fsm_in_t *in, 
             if (!in->est_ok || in->gate_k < FSM_ARM_K_MIN) return FSM_EV_REFUSE_EST;
             if (!(in->vbatt >= FSM_ARM_VMIN)) return FSM_EV_REFUSE_VBAT;      /* NaN 也拒绝 */
             if (in->r22 < FSM_ARM_R22_MIN) return FSM_EV_REFUSE_TILT;
+            if (!in->link_ok) return FSM_EV_REFUSE_LINK;
             return fsm_go(f, FSM_ARMED, FSM_EV_ARMED, in);
         }
         return (cmd == FSM_CMD_TAKEOFF || cmd == FSM_CMD_LAND) ? FSM_EV_REFUSE_STATE : FSM_EV_NONE;
@@ -130,6 +138,7 @@ static inline fsm_event_t fsm_step(fsm_t *f, fsm_cmd_t cmd, const fsm_in_t *in, 
     if (f->st == FSM_ARMED) {
         f->z_target = in->z;
         if (!in->est_ok) return fsm_go(f, FSM_DISARMED, FSM_EV_EST_FAIL, in);
+        if (!in->link_ok) return fsm_go(f, FSM_DISARMED, FSM_EV_DISARM_LINK, in);
         if (cmd == FSM_CMD_TAKEOFF) { f->z_goal = in->z + FSM_TAKEOFF_H; return fsm_go(f, FSM_TAKEOFF, FSM_EV_TAKEOFF, in); }
         if (cmd == FSM_CMD_ARM || cmd == FSM_CMD_LAND) return FSM_EV_REFUSE_STATE;
         f->t_ff = (in->acc_norm_g < FSM_FREEFALL_G) ? f->t_ff + dt : 0.0f;
@@ -146,6 +155,7 @@ static inline fsm_event_t fsm_step(fsm_t *f, fsm_cmd_t cmd, const fsm_in_t *in, 
 
     if (f->st != FSM_LAND) {
         if (cmd == FSM_CMD_LAND) return fsm_go(f, FSM_LAND, FSM_EV_LAND_CMD, in);
+        if (!in->link_ok) return fsm_go(f, FSM_LAND, FSM_EV_LAND_LINK, in);
         f->t_lowv = (in->vbatt < FSM_LOWV) ? f->t_lowv + dt : 0.0f;           /* NaN 不计入 */
         if (f->t_lowv >= FSM_LOWV_T) return fsm_go(f, FSM_LAND, FSM_EV_LAND_LOWV, in);
         if (f->t_motor >= FSM_ACTIVE_TMAX) return fsm_go(f, FSM_LAND, FSM_EV_LAND_ACTIVE_TO, in);

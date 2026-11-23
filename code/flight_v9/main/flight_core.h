@@ -16,6 +16,7 @@
 #include "flight_fsm.h"
 
 #define FC_BARO_STALE_S  0.2f
+#define FC_LINK_TIMEOUT  0.6f     /* s：遥控心跳超过这么久没来 → 链路丢失（手机每 0.1 s 发一次） */
 
 typedef struct {
     mahony_gated_t mg;
@@ -24,6 +25,7 @@ typedef struct {
     fsm_t fsm;
     uint32_t tick;
     float t_baro;                 /* 距上次气压计样本 s */
+    float t_link;                 /* 距上次遥控心跳 s */
     float vbatt;
     float k, anorm_g, w_norm, thrust_frac;
     float u_cmd[4], u_out[4];
@@ -41,7 +43,12 @@ static inline void fc_init(fc_t *c, const float a0_body[3])
     fsm_init(&c->fsm);
     c->vbatt = NAN;
     c->anorm_g = 1.0f;
+    c->t_link = 1e9f;             /* 上电时没有链路 */
 }
+
+/* 收到一次遥控心跳（手机网页 / 串口 hb）时调用 */
+static inline void fc_link_beat(fc_t *c) { c->t_link = 0.0f; }
+static inline int fc_link_ok(const fc_t *c) { return c->t_link < FC_LINK_TIMEOUT; }
 
 static inline void fc_command(fc_t *c, fsm_cmd_t cmd)
 {
@@ -62,6 +69,7 @@ static inline int fc_step(fc_t *c, const float a[3], const float g[3], float dt,
     c->w_norm = sqrtf(g[0] * g[0] + g[1] * g[1] + g[2] * g[2]);
     alt_predict(&c->alt, alt_up_accel(c->mg.q, a), dt);
     c->t_baro += dt;
+    if (c->t_link < 1e8f) c->t_link += dt;
     if (baro_new) { alt_correct(&c->alt, baro_z, baro_dtb); c->t_baro = 0.0f; }
     if (c->tick % 5u) return 0;
 
@@ -70,7 +78,8 @@ static inline int fc_step(fc_t *c, const float a[3], const float g[3], float dt,
     const float qn = q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3];
     fsm_in_t in = {.vbatt = c->vbatt, .acc_norm_g = c->anorm_g, .r22 = 1.0f - 2.0f * (q[1] * q[1] + q[2] * q[2]),
                    .w_norm = c->w_norm, .gate_k = c->k, .z = c->alt.z, .vz = c->alt.vz, .thrust_frac = c->thrust_frac,
-                   .est_ok = imu_ok && isfinite(qn) && qn > 0.5f && c->t_baro < FC_BARO_STALE_S && isfinite(c->alt.z)};
+                   .est_ok = imu_ok && isfinite(qn) && qn > 0.5f && c->t_baro < FC_BARO_STALE_S && isfinite(c->alt.z),
+                   .link_ok = fc_link_ok(c)};
     const fsm_cmd_t cmd = (fsm_cmd_t)c->pending_cmd; c->pending_cmd = FSM_CMD_NONE;
     const int was_on = fsm_motors_on(&c->fsm);
     const fsm_event_t ev = fsm_step(&c->fsm, cmd, &in, 0.005f);
