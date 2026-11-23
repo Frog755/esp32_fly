@@ -1,0 +1,44 @@
+{
+ "port": "/dev/ttyACM0",
+ "time": "2026-11-23 14:54:56",
+ "passed": 2,
+ "total": 2,
+ "steps": [
+  {
+   "step": "平放静止",
+   "ok": true,
+   "rule": "要求 |右−左|、|前−后| < 0.15，PD 模式",
+   "n": 100,
+   "roll": 1.4000000000000026,
+   "pitch": 0.3000000000000005,
+   "mode": 0.0,
+   "right_minus_left": 0.027450000000000002,
+   "front_minus_back": 0.005269999999999994,
+   "ccw_minus_cw": 0.00011000000000000121
+  },
+  {
+   "step": "安全逻辑",
+   "ok": true,
+   "rule": "arm→ARMED、go→ACTIVE、空格→立即上锁、未解锁 go 被拒；全程电机输出 0",
+   "arm": "EVT 16043 armed ARMED",
+   "go": "EVT 16143 go ACTIVE",
+   "active_rows": 50,
+   "space_kill": "EVT 17243 disarm_cmd DISARMED",
+   "go_when_disarmed": "EVT 17343 refuse_state DISARMED"
+  }
+ ],
+ "out_nonzero_rows": 0,
+ "status_end": {
+  "fw": "flight_v9 (Stage 24 dry-run)",
+  "motor_output": "0",
+  "motor_pins_level": "0 0 0 0",
+  "state": "DISARMED",
+  "vbatt": "4.164",
+  "calib_valid": "1",
+  "gyro_bias_dps": "3.601 -0.760 -0.311",
+  "loops": "11930 late_gt1100us 1 exec_max_us 446 ctrl200_max_us 214 spi_fail 0",
+  "alt": "z 0.038 vz 0.070 acc_bias -0.107",
+  "mapping": "u0->M1(右前,GPIO6) u1->M2(右后,GPIO5) u2->M3(左后,GPIO15) u3->M4(左前,GPIO16)"
+ },
+ "reset_events": []
+}

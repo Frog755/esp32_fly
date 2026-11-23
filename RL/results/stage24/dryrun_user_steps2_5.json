@@ -1,0 +1,42 @@
+{
+ "port": "/dev/ttyACM0",
+ "time": "2026-11-23 15:02:12",
+ "passed": 2,
+ "total": 2,
+ "steps": [
+  {
+   "step": "右侧朝下",
+   "ok": true,
+   "rule": "要求 roll > 15° 且 右侧 M1+M2 比左侧大 0.15 以上",
+   "n": 146,
+   "roll": 22.539041095890415,
+   "pitch": 0.7054794520547958,
+   "mode": 0.0,
+   "right_minus_left": 0.43603424657534234,
+   "front_minus_back": 0.014869863013698638,
+   "ccw_minus_cw": -0.002801369863013685
+  },
+  {
+   "step": "逆时针自转",
+   "ok": true,
+   "rule": "要求转动时 逆时针桨 M1+M3 − 顺时针桨 M2+M4 > 0.05（反扭矩制动自转）",
+   "n_spin": 82,
+   "wz": 144.40853658536585,
+   "ccw_minus_cw": 0.8710487804878045
+  }
+ ],
+ "out_nonzero_rows": 0,
+ "status_end": {
+  "fw": "flight_v9 (Stage 24 dry-run)",
+  "motor_output": "0",
+  "motor_pins_level": "0 0 0 0",
+  "state": "DISARMED",
+  "vbatt": "4.168",
+  "calib_valid": "1",
+  "gyro_bias_dps": "3.628 -0.774 -0.284",
+  "loops": "331744 late_gt1100us 1 exec_max_us 445 ctrl200_max_us 225 spi_fail 0",
+  "alt": "z -0.195 vz -0.016 acc_bias -0.034",
+  "mapping": "u0->M1(右前,GPIO6) u1->M2(右后,GPIO5) u2->M3(左后,GPIO15) u3->M4(左前,GPIO16)"
+ },
+ "reset_events": []
+}

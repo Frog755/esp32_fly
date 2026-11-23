@@ -38,3 +38,10 @@ code/connection_test/main/test_recovery_expert6_c
 code/sensor_test/attitude_check.json
 code/sensor_test/attitude_check_raw.csv
 code/sensor_test/attitude_check_events.txt
+
+# flight_v9：电机输出版编译检查目录、主机单测产物、干跑检查本地输出（正式结果另存 RL/results/stage24/）
+code/flight_v9/build_mc/
+code/flight_v9/build_host/
+code/flight_v9/dryrun_check.json
+code/flight_v9/dryrun_raw.csv
+code/flight_v9/dryrun_events.txt
