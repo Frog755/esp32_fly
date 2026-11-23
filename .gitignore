@@ -33,3 +33,8 @@ code/connection_test/main/test_recovery_expert6_c
 *.bak*
 *.log
 .DS_Store
+
+# sensor_test 姿态检查的本地输出（结果另存于 RL/results/stage23/）
+code/sensor_test/attitude_check.json
+code/sensor_test/attitude_check_raw.csv
+code/sensor_test/attitude_check_events.txt

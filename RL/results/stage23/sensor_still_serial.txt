@@ -1,0 +1,63 @@
+I (498) esp_psram: SPI SRAM memory test OK
+I (507) cpu_start: Pro cpu start user code
+I (507) cpu_start: cpu freq: 240000000 Hz
+I (507) app_init: Application information:
+I (508) app_init: Project name:     sensor_test
+I (508) app_init: App version:      stage19-v8-vs-v9-3-gd13190c
+I (508) app_init: Compile time:     Nov 22 2026 22:18:20
+I (508) app_init: ELF file SHA256:  d706afc53...
+I (508) app_init: ESP-IDF:          v6.1
+I (508) efuse_init: Min chip rev:     v0.0
+I (509) efuse_init: Max chip rev:     v0.99 
+I (509) efuse_init: Chip rev:         v0.2
+I (509) heap_init: Initializing. RAM available for dynamic allocation:
+I (509) heap_init: At 3FC97E10 len 00051900 (326 KiB): RAM
+I (509) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM
+I (509) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM
+I (509) heap_init: At 600FE000 len 00001FE8 (7 KiB): RTCRAM
+I (510) esp_psram: Adding pool of 8192K of PSRAM memory to heap allocator
+I (510) spi_flash: detected chip: boya
+I (510) spi_flash: flash io: qio
+I (511) sleep_gpio: Configure to isolate all GPIO pins in sleep state
+I (511) sleep_gpio: Enable automatic switching of GPIO sleep configuration
+I (512) main_task: Started on CPU0
+I (512) esp_psram: Reserving pool of 32K of internal memory for DMA/internal allocations
+I (513) main_task: Calling app_main()
+SEN_BEGIN
+SEN firmware sensor_test (no PWM code)
+SEN reset_reason 11
+SEN motor_pins_level 0 0 0 0
+SEN vbatt_adc unit=1 ch=1 cali=1
+SEN vbatt_v 4.192
+SEN battery_connected 1
+SEN i2c_devices 1 0x76
+SEN bmp_chip_id 0x58
+SEN bmp_samples 150 in 3.00 s
+SEN bmp_pressure_pa 98946.6
+SEN bmp_temp_c 27.62
+SEN bmp_alt_std_cm 7.27
+SEN bmp_pressure_std_pa 0.86
+SEN imu_who_am_i 0x70
+SEN imu_cfg_readback 02 18 18 02 10 OK
+SEN imu_ok 1
+SEN acc_range_2g mean 0.0216 -0.0148 1.1773 norm 1.1776
+SEN acc_range_4g mean 0.0218 -0.0150 1.1780 norm 1.1783
+SEN acc_range_8g mean 0.0220 -0.0153 1.1773 norm 1.1776
+SEN acc_range_16g mean 0.0216 -0.0148 1.1775 norm 1.1778
+SEN imu_samples 3000
+SEN imu_period_us_min 1000
+SEN imu_period_us_max 1000
+SEN imu_late_gt1100us 0
+SEN imu_read_us_avg 33.0
+SEN imu_read_us_max 49.6
+SEN acc_mean_g 0.0216 -0.0148 1.1776
+SEN acc_std_mg 1.65 1.65 2.52
+SEN acc_norm_g 1.1779
+SEN gyro_bias_dps 3.383 -0.743 -0.254
+SEN gyro_std_dps 0.101 0.102 0.083
+SEN imu_temp_c 28.83
+SEN mahony_still_tilt_err_deg 0.028
+SEN gyro_only_5s_tilt_drift_deg 0.028
+SEN mahony_gate_k_min_avg_max 0.000 0.000 0.000
+SEN motor_pins_level_end 0 0 0 0
+SEN_DONE

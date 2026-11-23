@@ -29,7 +29,9 @@ scripts/visualize_v8_v9.py     MuJoCo 同工况对比
         ↓
 code/connection_test/main/recovery_expert9.h + mahony_gated.h   C 实现
         ↓   scripts/verify_expert9_c_equivalence.py 逐项校验（Stage 21）
-[待做] 接入 FreeRTOS 主循环 → 开发板实测
+        ↓   scripts/gen_hil_vectors.py → code/bench_v9/ 上板一致性与耗时（Stage 22）
+code/sensor_test/   真机传感器 + 六面标定 calib.sh + 姿态检查 attitude.sh（Stage 23）
+[待做] 拆桨电机测试（映射 / 转向 / 偏航符号）→ 完整飞控固件 → 台架自检
 ```
 
 ## 目录
@@ -58,11 +60,12 @@ RL/
 │   ├── eval_all_controllers.py   历代控制器 512 通道总榜
 │   ├── verify_expert9_c_equivalence.py   ★ v9 控制器 + 门控 Mahony 的 C 实现全量校验
 │   ├── verify_expert{6,7,8}_c_equivalence.py   前代 C 头文件 vs Python 逐位校验
+│   ├── gen_hil_vectors.py        生成上板测试向量 code/bench_v9/main/hil_vectors.h（Stage 22）
 │   ├── visualize_v8_v9.py        ★ v8 vs v9 同工况 3D 对比
 │   ├── visualize_recovery.py     旧版 3D 查看器（v5~v8）
 │   └── generate_mujoco_visualizations.py   旧版批量导出视频
 ├── legacy/                       历史实验（RL 训练、查表、Raptor、诊断），逻辑未改，仍可运行
-├── results/                      各阶段原始结果（stage17 调参、stage18 噪声、stage19 可视化、stage20 迁移核对）
+├── results/                      各阶段原始结果（stage17 调参、stage18 噪声、stage19 可视化、stage20 迁移核对、stage21 C 校验、stage22 上板、stage23 真机传感器）
 ├── models/                       checkpoints 与查表数据（大多不入库）
 ├── data/                         Raptor 参考权重
 └── docs/                         历史实验报告（文中路径为迁移前路径，对照见 legacy/README.md）
