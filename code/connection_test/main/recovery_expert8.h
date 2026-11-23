@@ -13,7 +13,8 @@
  *   3. 航向解耦世界系定点微倾制动:
  *      - 投影 a_body = R^T * a_world，中位漂移锁死在 5.3cm 以内
  *   4. 超轻量纯 C 嵌入式实现:
- *      - 0 堆内存消耗，单步执行耗时 < 0.65μs
+ *      - 0 堆内存消耗；单步耗时 ESP32-S3 240 MHz 实测平均 5.8 μs / 最慢 49.5 μs（Stage 22 上板，
+ *        RL/results/stage22/hil_result.json；早先写的 "< 0.65μs" 未经实测，已更正）
  */
 
 #ifndef RECOVERY_EXPERT8_H

@@ -1,0 +1,70 @@
+I (496) esp_psram: SPI SRAM memory test OK
+I (505) cpu_start: Pro cpu start user code
+I (505) cpu_start: cpu freq: 240000000 Hz
+I (505) app_init: Application information:
+I (505) app_init: Project name:     bench_v9
+I (505) app_init: App version:      stage19-v8-vs-v9-3-gd13190c
+I (505) app_init: Compile time:     Nov 22 2026 22:06:55
+I (506) app_init: ELF file SHA256:  9cd5bfdca...
+I (506) app_init: ESP-IDF:          v6.1
+I (506) efuse_init: Min chip rev:     v0.0
+I (506) efuse_init: Max chip rev:     v0.99 
+I (506) efuse_init: Chip rev:         v0.2
+I (506) heap_init: Initializing. RAM available for dynamic allocation:
+I (507) heap_init: At 3FC956E0 len 00054030 (336 KiB): RAM
+I (507) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM
+I (507) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM
+I (507) heap_init: At 600FE000 len 00001FE8 (7 KiB): RTCRAM
+I (507) esp_psram: Adding pool of 8192K of PSRAM memory to heap allocator
+I (508) spi_flash: detected chip: boya
+I (508) spi_flash: flash io: qio
+I (508) sleep_gpio: Configure to isolate all GPIO pins in sleep state
+I (509) sleep_gpio: Enable automatic switching of GPIO sleep configuration
+I (509) main_task: Started on CPU0
+I (509) esp_psram: Reserving pool of 32K of internal memory for DMA/internal allocations
+I (510) main_task: Calling app_main()
+HIL_BEGIN
+HIL idf v6.1
+HIL chip_model 9
+HIL chip_rev 2
+HIL cores 2
+HIL cpu_mhz 240
+HIL t1_n 320
+HIL t1_max_dT_N 3.327e-07
+HIL t1_max_du_live 2.667e-06
+HIL t1_max_du_nearzero 1.414e-04
+HIL t1_nearzero_gt1e-4 2
+HIL t1_max_dzint 9.313e-10
+HIL t1_mode_mismatch 0
+HIL t2_n 512
+HIL t2_max_deg 9.697e-06
+HIL t2_mean_deg 1.730e-06
+HIL t3_overhead_cycles 1
+HIL t3_v9_cycles_min 2596
+HIL t3_v9_cycles_avg 3251.9
+HIL t3_v9_cycles_max 17241
+HIL t3_v9_us_avg 13.550
+HIL t3_v9_us_max 71.838
+HIL t3_mahony_cycles_min 957
+HIL t3_mahony_cycles_avg 1073.1
+HIL t3_mahony_cycles_max 2497
+HIL t3_mahony_us_avg 4.471
+HIL t3_mahony_us_max 10.404
+HIL t3_v8_cycles_min 1213
+HIL t3_v8_cycles_avg 1389.3
+HIL t3_v8_cycles_max 11880
+HIL t3_v8_us_avg 5.789
+HIL t3_v8_us_max 49.500
+HIL t4_seconds 10
+HIL t4_freertos_hz 1000
+HIL t4_ticks 10000
+HIL t4_ctrl_calls 2000
+HIL t4_period_us_avg 1000.00
+HIL t4_period_us_min 1000
+HIL t4_period_us_max 1000
+HIL t4_late_gt1100us 0
+HIL t4_exec_us_max 129.113
+HIL t4_cpu_load_pct 0.6616
+HIL_DONE
+
+>>> 解析到 41 项，已写入 hil_result.json
