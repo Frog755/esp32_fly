@@ -8,6 +8,7 @@
 判据来源：test/host_test.c（同一份控制器代码在电脑上算出的期望方向）
   右侧朝下 → 右侧 M1+M2 加速；机头朝下 → 前方 M1+M4 加速；
   俯视逆时针转 → 逆时针桨 M1+M3 加速（反扭矩制动）；倒扣 → 进入 bang-bang 翻转模式
+  第 8 步：起飞→（台架上离不了地）起飞超时→自动降落→触地停桨；land 指令；空格急停
 输出：dryrun_check.json、dryrun_raw.csv、dryrun_events.txt —— 把终端输出或 json 发给我。
 """
 import sys, time, json, math
@@ -23,9 +24,9 @@ ONLY = None
 for a in sys.argv[1:]:
     if a.startswith('--only='):
         ONLY = {int(x) for x in a[7:].split(',') if x.strip()}
-COLS = ['t', 'st', 'mode', 'roll', 'pitch', 'yaw', 'wz', 'z', 'vz', 'vb', 'k', 'm1', 'm2', 'm3', 'm4', 'out']
+COLS = ['t', 'st', 'mode', 'roll', 'pitch', 'yaw', 'wz', 'z', 'vz', 'vb', 'k', 'm1', 'm2', 'm3', 'm4', 'out', 'zt', 'thr']
 raw, events = [], []
-STATE = ['DISARMED', 'ARMED', 'ACTIVE']
+STATE = ['DISARMED', 'ARMED', 'TAKEOFF', 'RECOVER', 'HOLD', 'LAND']
 
 
 class Board:
@@ -45,7 +46,7 @@ class Board:
             line = line.strip(); p = line.split()
             if not p:
                 continue
-            if p[0] == 'F' and len(p) == 17:
+            if p[0] == 'F' and len(p) == 19:
                 try:
                     v = dict(zip(COLS, [float(x) for x in p[1:]]))
                 except ValueError:
@@ -139,21 +140,51 @@ def step_yaw(b):
 
 
 def step_safety(b):
-    input('→【安全逻辑检查（电机不会转）：飞机平放静止，按回车】 ')
-    res = {}; ok = True
-    b.evts = []; b.send('arm'); e = b.wait_evt('EVT', 1.5); res['arm'] = e
-    print(f'   arm → {e}'); ok &= bool(e and 'armed' in e)
-    b.evts = []; b.send('go'); e = b.wait_evt('EVT', 1.5); res['go'] = e
-    print(f'   go → {e}'); ok &= bool(e and 'ACTIVE' in e)
-    rows = b.collect(1.0)
-    act = [r for r in rows if r['st'] == 2]
-    print(f'   ACTIVE 1 秒：{len(act)} 行，实际写电机占空比之和最大 {max([r["out"] for r in rows] or [0]):.3f}（干跑版应恒为 0）')
-    res['active_rows'] = len(act); ok &= len(act) > 30 and all(r['out'] == 0 for r in rows)
-    b.evts = []; b.ser.write(b' '); e = b.wait_evt('EVT', 1.5); res['space_kill'] = e
-    print(f'   空格急停 → {e}'); ok &= bool(e and 'disarm_cmd' in e)
-    b.evts = []; b.send('go'); e = b.wait_evt('EVT', 1.5); res['go_when_disarmed'] = e
-    print(f'   未解锁时 go → {e}'); ok &= bool(e and 'refuse_state' in e)
-    return ok, 'arm→ARMED、go→ACTIVE、空格→立即上锁、未解锁 go 被拒；全程电机输出 0', res
+    input('→【安全逻辑 + 降落逻辑检查（电机不会转，约 20 秒）：飞机平放静止，按回车，然后别碰它】 ')
+    res = {}; ok = True; out_max = 0.0
+
+    def ev(cmd, word, sec=1.5):
+        b.evts = []
+        if cmd == ' ':
+            b.ser.write(b' ')
+        elif cmd:
+            b.send(cmd)
+        e = b.wait_evt(word, sec)
+        return e
+
+    # A：起飞 → 台架上不可能离地 → 6 s 起飞超时 → 自动降落 → 触地检测停桨
+    e = ev('arm', 'armed'); print(f'   arm → {e}'); ok &= bool(e); res['arm'] = e
+    e = ev('takeoff', 'takeoff'); print(f'   takeoff → {e}'); ok &= bool(e); res['takeoff'] = e
+    t0 = time.time(); seen = []
+    while time.time() - t0 < 10.0:
+        rows = b.poll()
+        out_max = max([out_max] + [abs(r['out']) for r in rows])
+        for x in b.evts:
+            if x not in seen:
+                seen.append(x)
+        if any('landed' in x or 'DISARMED' in x for x in seen):
+            break
+    for x in seen:
+        print(f'     {x}')
+    ok &= any('land_takeoff_timeout' in x for x in seen) and any(' landed ' in x + ' ' for x in seen)
+    res['takeoff_timeout_then_landed'] = seen
+    # B：起飞 1 s 后 land 指令 → 降落 → 触地停桨
+    e = ev('arm', 'armed'); ok &= bool(e)
+    e = ev('takeoff', 'takeoff'); ok &= bool(e)
+    time.sleep(1.0)
+    e = ev('land', 'land_cmd'); print(f'   land → {e}'); ok &= bool(e); res['land_cmd'] = e
+    e = b.wait_evt('landed', 4.0); print(f'     → {e}'); ok &= bool(e); res['land_cmd_landed'] = e
+    # C：空格急停
+    e = ev('arm', 'armed'); ok &= bool(e)
+    e = ev('takeoff', 'takeoff'); ok &= bool(e)
+    e = ev(' ', 'disarm_cmd'); print(f'   空格急停 → {e}'); ok &= bool(e); res['space_kill'] = e
+    # D：未解锁时 takeoff 被拒
+    e = ev('takeoff', 'refuse_state'); print(f'   未解锁时 takeoff → {e}'); ok &= bool(e); res['takeoff_when_disarmed'] = e
+    rows = b.collect(0.5)
+    out_max = max([out_max] + [abs(r['out']) for r in rows])
+    print(f'   全程实际写电机的占空比之和最大 {out_max:.3f}（干跑版应恒为 0）')
+    ok &= out_max == 0.0
+    return ok, '起飞超时→自动降落→触地停桨、land 指令→触地停桨、空格→立即上锁、未解锁 takeoff 被拒；全程电机输出 0', res
 
 
 def main():

@@ -1,6 +1,6 @@
 /* host_test.c —— flight_v9 纯 C 部分的主机单测（gcc，不依赖 ESP-IDF）
  *   1. 控制器 + 电机映射方向：右侧朝下 / 机头朝下 / 逆时针自转 / 倒扣 → 期望哪几个电机加速（dryrun_check.py 的判据来源）
- *   2. 安全状态机：解锁条件、超时、失重抛出、低电压、撞击、估计器失效、上锁优先
+ *   2. 飞行状态机：解锁、抛出 / 起飞 → 回正 → 悬停 5 s → 降落 → 触地停桨，及全部保护
  *   3. 竖直互补滤波：悬停 / 爬升 / 自由落体 / 加计零偏下的 z、vz 误差
  * 编译运行：./run_host_test.sh
  */
@@ -8,7 +8,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include "recovery_expert9.h"
-#include "flight_safety.h"
+#include "flight_fsm.h"
 #include "alt_est.h"
 #include "motor_out.h"
 
@@ -68,71 +68,112 @@ static void test_controller(void)
     CHECK(inv2.mode == 1 && roll_diff(inv2) > 0.05f, "右侧朝下 170° → 翻转模式，且右侧加速（向左翻回）");
 }
 
-/* ---------------- 2. 安全状态机 ---------------- */
-static fs_in_t ok_in(void) { fs_in_t in = {.vbatt = 4.1f, .acc_norm_g = 1.0f, .r22 = 1.0f, .gate_k = 2.0f, .est_ok = 1}; return in; }
-static fs_event_t run_for(fs_t *f, fs_in_t in, float sec, fs_event_t *first)
+/* ---------------- 2. 飞行状态机 ---------------- */
+static fsm_in_t ok_in(void)
 {
-    fs_event_t last = FS_EV_NONE; *first = FS_EV_NONE;
+    fsm_in_t in = {.vbatt = 4.1f, .acc_norm_g = 1.0f, .r22 = 1.0f, .w_norm = 0.0f, .gate_k = 2.0f, .z = 1.0f, .vz = 0.0f,
+                   .thrust_frac = 1.0f, .est_ok = 1};
+    return in;
+}
+static fsm_event_t run_for(fsm_t *f, fsm_in_t in, float sec, fsm_event_t *first)
+{
+    fsm_event_t last = FSM_EV_NONE; *first = FSM_EV_NONE;
     int n = (int)(sec / 0.005f + 0.5f);
-    for (int i = 0; i < n; i++) { fs_event_t e = fs_step(f, FS_CMD_NONE, &in, 0.005f); if (e && !*first) *first = e; if (e) last = e; }
+    for (int i = 0; i < n; i++) { fsm_event_t e = fsm_step(f, FSM_CMD_NONE, &in, 0.005f); if (e && !*first) *first = e; if (e) last = e; if (f->st == FSM_DISARMED) break; }
     return last;
 }
-static void test_safety(void)
-{
-    printf("[2] 安全状态机\n");
-    fs_t f; fs_in_t in; fs_event_t e, first;
-    fs_init(&f); in = ok_in(); in.vbatt = 3.5f;   e = fs_step(&f, FS_CMD_ARM, &in, 0.005f);
-    CHECK(e == FS_EV_REFUSE_VBAT && f.st == FS_DISARMED, "电压 3.5 V 拒绝解锁");
-    in.vbatt = NAN; e = fs_step(&f, FS_CMD_ARM, &in, 0.005f);
-    CHECK(e == FS_EV_REFUSE_VBAT, "电压读数 NaN 拒绝解锁");
-    in = ok_in(); in.r22 = 0.9f;                  e = fs_step(&f, FS_CMD_ARM, &in, 0.005f);
-    CHECK(e == FS_EV_REFUSE_TILT, "倾斜 26° 拒绝解锁");
-    in = ok_in(); in.gate_k = 0.2f;               e = fs_step(&f, FS_CMD_ARM, &in, 0.005f);
-    CHECK(e == FS_EV_REFUSE_EST, "在动（门控增益低）拒绝解锁");
-    in = ok_in();                                 e = fs_step(&f, FS_CMD_GO, &in, 0.005f);
-    CHECK(e == FS_EV_REFUSE_STATE && f.st == FS_DISARMED, "未解锁时 go 被拒绝");
-    e = fs_step(&f, FS_CMD_ARM, &in, 0.005f);
-    CHECK(e == FS_EV_ARMED && f.st == FS_ARMED, "条件合格 → 解锁");
-    run_for(&f, in, 19.9f, &first);
-    CHECK(f.st == FS_ARMED, "解锁 19.9 s 仍在等待抛出");
-    run_for(&f, in, 0.2f, &first);
-    CHECK(f.st == FS_DISARMED && first == FS_EV_ARM_TIMEOUT, "解锁 20 s 未抛出 → 自动上锁");
+static void armed(fsm_t *f) { fsm_in_t in = ok_in(); fsm_init(f); fsm_step(f, FSM_CMD_ARM, &in, 0.005f); }
+static void launched(fsm_t *f) { fsm_event_t e; fsm_in_t in = ok_in(); armed(f); in.acc_norm_g = 0.1f; run_for(f, in, 0.05f, &e); }
+static void holding(fsm_t *f) { fsm_event_t e; launched(f); run_for(f, ok_in(), 0.3f, &e); }
 
-    fs_init(&f); in = ok_in(); fs_step(&f, FS_CMD_ARM, &in, 0.005f);
-    in.acc_norm_g = 0.2f; run_for(&f, in, 0.030f, &first);
-    CHECK(f.st == FS_ARMED, "失重 30 ms 不触发（防误判）");
+static void test_fsm(void)
+{
+    printf("[2] 飞行状态机\n");
+    fsm_t f; fsm_in_t in; fsm_event_t e, first;
+    fsm_init(&f); in = ok_in(); in.vbatt = 3.5f; e = fsm_step(&f, FSM_CMD_ARM, &in, 0.005f);
+    CHECK(e == FSM_EV_REFUSE_VBAT && f.st == FSM_DISARMED, "电压 3.5 V 拒绝解锁");
+    in.vbatt = NAN; e = fsm_step(&f, FSM_CMD_ARM, &in, 0.005f);
+    CHECK(e == FSM_EV_REFUSE_VBAT, "电压读数 NaN 拒绝解锁");
+    in = ok_in(); in.r22 = 0.9f; e = fsm_step(&f, FSM_CMD_ARM, &in, 0.005f);
+    CHECK(e == FSM_EV_REFUSE_TILT, "倾斜 26° 拒绝解锁");
+    in = ok_in(); in.gate_k = 0.2f; e = fsm_step(&f, FSM_CMD_ARM, &in, 0.005f);
+    CHECK(e == FSM_EV_REFUSE_EST, "在动（门控增益低）拒绝解锁");
+    in = ok_in(); e = fsm_step(&f, FSM_CMD_TAKEOFF, &in, 0.005f);
+    CHECK(e == FSM_EV_REFUSE_STATE && f.st == FSM_DISARMED, "未解锁时 takeoff 被拒绝");
+    e = fsm_step(&f, FSM_CMD_ARM, &in, 0.005f);
+    CHECK(e == FSM_EV_ARMED && f.st == FSM_ARMED && !fsm_motors_on(&f), "条件合格 → 解锁（ARMED 电机不转）");
+    run_for(&f, in, 19.9f, &first);
+    CHECK(f.st == FSM_ARMED, "解锁 19.9 s 仍在等待");
+    run_for(&f, in, 0.2f, &first);
+    CHECK(f.st == FSM_DISARMED && first == FSM_EV_ARM_TIMEOUT, "解锁 20 s 未出手 → 自动上锁");
+
+    /* 抛出 → 回正 → 悬停 5 s → 降落 → 触地 */
+    armed(&f); in = ok_in(); in.z = 1.5f; in.acc_norm_g = 0.2f; run_for(&f, in, 0.030f, &first);
+    CHECK(f.st == FSM_ARMED, "失重 30 ms 不触发（防误判）");
     in.acc_norm_g = 1.0f; run_for(&f, in, 0.01f, &first);
     in.acc_norm_g = 0.2f; run_for(&f, in, 0.030f, &first);
-    CHECK(f.st == FS_ARMED, "失重计时被打断后重新累计");
+    CHECK(f.st == FSM_ARMED, "失重计时被打断后重新累计");
     run_for(&f, in, 0.015f, &first);
-    CHECK(f.st == FS_ACTIVE && first == FS_EV_LAUNCH, "连续失重 ≥40 ms → ACTIVE（抛出）");
-    in = ok_in(); in.acc_norm_g = 8.0f; run_for(&f, in, 0.1f, &first);
-    CHECK(f.st == FS_ACTIVE, "进入 ACTIVE 0.3 s 内的大加速度不算撞击（出手瞬间）");
-    in = ok_in(); run_for(&f, in, 0.3f, &first); in.acc_norm_g = 7.0f; fs_step(&f, FS_CMD_NONE, &in, 0.005f);
-    CHECK(f.st == FS_DISARMED, "ACTIVE 中 7 g 撞击 → 停桨");
-
-    fs_init(&f); in = ok_in(); fs_step(&f, FS_CMD_ARM, &in, 0.005f); fs_step(&f, FS_CMD_GO, &in, 0.005f);
-    CHECK(f.st == FS_ACTIVE, "go 指令 → ACTIVE");
-    e = fs_step(&f, FS_CMD_ARM, &in, 0.005f);
-    CHECK(e == FS_EV_REFUSE_STATE && f.st == FS_ACTIVE, "ACTIVE 中 arm 被忽略");
-    in.vbatt = 2.9f; run_for(&f, in, 0.45f, &first);
-    CHECK(f.st == FS_ACTIVE, "低电压 0.45 s 不停桨（电机启动压降）");
+    CHECK(f.st == FSM_RECOVER && first == FSM_EV_LAUNCH && fsm_motors_on(&f), "连续失重 ≥40 ms → RECOVER（电机启动）");
+    CHECK(fabsf(f.z_target - 1.5f) < 1e-4f, "回正目标高度 = 出手高度 1.5 m");
+    in = ok_in(); in.z = 1.0f; in.r22 = 0.5f; in.w_norm = 8.0f; in.acc_norm_g = 8.0f; run_for(&f, in, 0.1f, &first);
+    CHECK(f.st == FSM_RECOVER, "出手后 0.3 s 内的大加速度不算撞击");
+    in = ok_in(); in.z = 1.0f; in.vz = 0.6f; run_for(&f, in, 0.5f, &first);
+    CHECK(f.st == FSM_RECOVER, "|vz| 0.6 m/s（还在爬回）不算稳定");
+    in.vz = 0.2f; run_for(&f, in, 0.2f, &first);
+    CHECK(f.st == FSM_RECOVER, "稳定 0.2 s 还不进 HOLD");
     run_for(&f, in, 0.1f, &first);
-    CHECK(f.st == FS_DISARMED && first == FS_EV_LOWV, "低电压持续 0.5 s → 停桨");
+    CHECK(f.st == FSM_HOLD && first == FSM_EV_STABLE, "稳定 0.25 s → HOLD");
+    in = ok_in(); in.r22 = 0.8f; run_for(&f, in, 4.8f, &first);
+    CHECK(f.st == FSM_HOLD, "HOLD 4.8 s（中途姿态晃动也不提前降落）");
+    run_for(&f, in, 0.25f, &first);
+    CHECK(f.st == FSM_LAND && first == FSM_EV_LAND_AUTO, "悬停满 5 s → 自动降落");
+    float zt0 = f.z_target; in = ok_in(); in.vz = -0.35f; run_for(&f, in, 1.0f, &first);
+    CHECK(fabsf((zt0 - f.z_target) - 0.35f) < 0.01f, "降落时目标高度以 0.35 m/s 下降（1 s 降 %.3f m）", zt0 - f.z_target);
+    in.thrust_frac = 0.3f; in.vz = 0.0f; run_for(&f, in, 0.25f, &first);
+    CHECK(f.st == FSM_LAND, "低推力 + 不动 0.25 s 还不停桨");
+    run_for(&f, in, 0.1f, &first);
+    CHECK(f.st == FSM_DISARMED && first == FSM_EV_LANDED, "低推力 + 不动 0.3 s → 触地停桨");
 
-    fs_init(&f); in = ok_in(); fs_step(&f, FS_CMD_ARM, &in, 0.005f); fs_step(&f, FS_CMD_GO, &in, 0.005f);
-    run_for(&f, in, 7.9f, &first);
-    CHECK(f.st == FS_ACTIVE, "ACTIVE 7.9 s 仍在运行");
+    launched(&f); in = ok_in(); in.r22 = 0.3f; run_for(&f, in, 3.9f, &first);
+    CHECK(f.st == FSM_RECOVER, "回正 3.9 s 未稳定仍在回正");
     run_for(&f, in, 0.2f, &first);
-    CHECK(f.st == FS_DISARMED && first == FS_EV_ACTIVE_TIMEOUT, "ACTIVE 8 s → 超时停桨");
+    CHECK(f.st == FSM_LAND && first == FSM_EV_LAND_RECOVER_TO, "回正 4 s 未稳定 → 降落（不是空中停桨）");
+    fsm_go(&f, FSM_LAND, FSM_EV_NONE, &in); in = ok_in(); in.thrust_frac = 0.3f; run_for(&f, in, 0.9f, &first);
+    CHECK(f.st == FSM_LAND, "进入降落 1 s 内不做触地检测");
+    in = ok_in(); in.vz = -0.35f; run_for(&f, in, 18.0f, &first);
+    CHECK(f.st == FSM_LAND, "一直在下降（正常推力）不会误判触地");
+    run_for(&f, in, 3.0f, &first);
+    CHECK(f.st == FSM_DISARMED && first == FSM_EV_LAND_TIMEOUT, "降落 20 s 仍未触地 → 停桨");
 
-    fs_init(&f); in = ok_in(); fs_step(&f, FS_CMD_ARM, &in, 0.005f); fs_step(&f, FS_CMD_GO, &in, 0.005f);
-    in.est_ok = 0; e = fs_step(&f, FS_CMD_NONE, &in, 0.005f);
-    CHECK(e == FS_EV_EST_FAIL && f.st == FS_DISARMED, "ACTIVE 中 IMU 失效 → 立即停桨");
-    fs_init(&f); in = ok_in(); fs_step(&f, FS_CMD_ARM, &in, 0.005f); fs_step(&f, FS_CMD_GO, &in, 0.005f);
-    in.est_ok = 0; in.vbatt = NAN; in.acc_norm_g = 0.1f;
-    e = fs_step(&f, FS_CMD_DISARM, &in, 0.005f);
-    CHECK(e == FS_EV_DISARM_CMD && f.st == FS_DISARMED, "disarm 指令在任何输入下都立即生效");
+    /* 起飞 */
+    armed(&f); in = ok_in(); in.z = 0.0f; e = fsm_step(&f, FSM_CMD_TAKEOFF, &in, 0.005f);
+    CHECK(e == FSM_EV_TAKEOFF && f.st == FSM_TAKEOFF && fabsf(f.z_goal - 0.8f) < 1e-4f, "takeoff → TAKEOFF，目标 = 起飞点 +0.8 m");
+    run_for(&f, in, 1.0f, &first);
+    CHECK(fabsf(f.z_target - 0.5f) < 0.01f, "起飞目标以 0.5 m/s 上升（1 s 后 %.3f m）", f.z_target);
+    in.z = 0.75f; run_for(&f, in, 0.7f, &first);
+    CHECK(f.st == FSM_HOLD && first == FSM_EV_STABLE, "到达 +0.8 m 附近且稳定 → HOLD");
+    armed(&f); in = ok_in(); in.z = 0.0f; fsm_step(&f, FSM_CMD_TAKEOFF, &in, 0.005f); run_for(&f, in, 6.1f, &first);
+    CHECK(f.st == FSM_LAND && first == FSM_EV_LAND_TAKEOFF_TO, "起飞 6 s 未离地（台架干跑 / 推力不足）→ 降落");
+    run_for(&f, in, 0.5f, &first); in.thrust_frac = 0.3f; run_for(&f, in, 1.0f, &first);
+    CHECK(f.st == FSM_DISARMED && first == FSM_EV_LANDED, "随后触地检测停桨");
+
+    /* 保护 */
+    holding(&f); in = ok_in(); in.acc_norm_g = 7.0f; fsm_step(&f, FSM_CMD_NONE, &in, 0.005f);
+    CHECK(f.st == FSM_DISARMED, "悬停中 7 g 撞击 → 停桨");
+    holding(&f); in = ok_in(); in.vbatt = 2.9f; run_for(&f, in, 0.45f, &first);
+    CHECK(f.st == FSM_HOLD, "低电压 0.45 s 不动作（电机负载压降）");
+    run_for(&f, in, 0.1f, &first);
+    CHECK(f.st == FSM_LAND && first == FSM_EV_LAND_LOWV, "低电压持续 0.5 s → 降落（不在空中停桨）");
+    holding(&f); in = ok_in(); e = fsm_step(&f, FSM_CMD_LAND, &in, 0.005f);
+    CHECK(e == FSM_EV_LAND_CMD && f.st == FSM_LAND, "land 指令 → 立即降落");
+    e = fsm_step(&f, FSM_CMD_TAKEOFF, &in, 0.005f);
+    CHECK(e == FSM_EV_REFUSE_STATE && f.st == FSM_LAND, "飞行中 takeoff / arm 被忽略");
+    holding(&f); in = ok_in(); in.est_ok = 0; e = fsm_step(&f, FSM_CMD_NONE, &in, 0.005f);
+    CHECK(e == FSM_EV_EST_FAIL && f.st == FSM_DISARMED, "飞行中估计器失效 → 立即停桨");
+    holding(&f); in = ok_in(); in.est_ok = 0; in.vbatt = NAN; in.acc_norm_g = 0.1f;
+    e = fsm_step(&f, FSM_CMD_DISARM, &in, 0.005f);
+    CHECK(e == FSM_EV_DISARM_CMD && f.st == FSM_DISARMED && !fsm_motors_on(&f), "disarm 指令在任何输入下都立即生效");
 }
 
 /* ---------------- 3. 竖直互补滤波 ---------------- */
@@ -166,7 +207,7 @@ static void test_alt(void)
 int main(void)
 {
     test_controller();
-    test_safety();
+    test_fsm();
     test_alt();
     printf("\n通过 %d / %d\n", n_pass, n_pass + n_fail);
     return n_fail ? 1 : 0;

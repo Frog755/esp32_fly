@@ -18,6 +18,7 @@
 #include "esp_rom_sys.h"
 #include "mahony_gated.h"
 #include "imu_calib.h"
+#include "level_trim.h"        /* ../level_trim.h：IMU 安装水平修正 */
 
 static const int MOTOR_PINS[4] = {16, 6, 5, 15};          /* M4 左前 / M1 右前 / M2 右后 / M3 左后 */
 #define PIN_SPI_SCK   38
@@ -95,6 +96,16 @@ static void imu_to_body(const imu_raw_t *r, const float gbias[3], float a_b[3], 
         a_b[i] = g_b[i] = 0.0f;
         for (int j = 0; j < 3; j++) { a_b[i] += IMU_CHIP_TO_BODY[i][j] * ac[j]; g_b[i] += IMU_CHIP_TO_BODY[i][j] * gc[j]; }
     }
+#if LEVEL_TRIM_VALID
+    {   /* IMU 安装水平修正（level_trim.h，由 level_trim.sh 测得） */
+        float ta[3], tg[3];
+        for (int i = 0; i < 3; i++) {
+            ta[i] = LEVEL_TRIM_R[i][0] * a_b[0] + LEVEL_TRIM_R[i][1] * a_b[1] + LEVEL_TRIM_R[i][2] * a_b[2];
+            tg[i] = LEVEL_TRIM_R[i][0] * g_b[0] + LEVEL_TRIM_R[i][1] * g_b[1] + LEVEL_TRIM_R[i][2] * g_b[2];
+        }
+        for (int i = 0; i < 3; i++) { a_b[i] = ta[i]; g_b[i] = tg[i]; }
+    }
+#endif
 }
 
 static int imu_init(void)

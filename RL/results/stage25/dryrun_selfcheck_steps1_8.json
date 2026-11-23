@@ -1,0 +1,52 @@
+{
+ "port": "/dev/ttyACM0",
+ "time": "2026-11-23 15:23:43",
+ "passed": 2,
+ "total": 2,
+ "steps": [
+  {
+   "step": "平放静止",
+   "ok": true,
+   "rule": "要求 |右−左|、|前−后| < 0.15，PD 模式",
+   "n": 100,
+   "roll": 1.5,
+   "pitch": 0.19999999999999962,
+   "mode": 0.0,
+   "right_minus_left": 0.03137000000000004,
+   "front_minus_back": 0.0038700000000000045,
+   "ccw_minus_cw": -0.00019000000000001237
+  },
+  {
+   "step": "安全逻辑",
+   "ok": true,
+   "rule": "起飞超时→自动降落→触地停桨、land 指令→触地停桨、空格→立即上锁、未解锁 takeoff 被拒；全程电机输出 0",
+   "arm": "EVT 17038 armed ARMED",
+   "takeoff": "EVT 17138 takeoff TAKEOFF",
+   "takeoff_timeout_then_landed": [
+    "EVT 17138 takeoff TAKEOFF",
+    "EVT 23138 land_takeoff_timeout LAND",
+    "EVT 24443 landed DISARMED"
+   ],
+   "land_cmd": "EVT 25748 land_cmd LAND",
+   "land_cmd_landed": "EVT 27053 landed DISARMED",
+   "space_kill": "EVT 27353 disarm_cmd DISARMED",
+   "takeoff_when_disarmed": "EVT 27453 refuse_state DISARMED"
+  }
+ ],
+ "out_nonzero_rows": 0,
+ "status_end": {
+  "fw": "flight_v9 (Stage 25 dry-run: recover-hold-land)",
+  "motor_output": "0",
+  "motor_pins_level": "0 0 0 0",
+  "state": "DISARMED",
+  "vbatt": "4.167",
+  "calib_valid": "1",
+  "level_trim": "0 0.000 0.000",
+  "gyro_bias_dps": "3.646 -0.771 -0.286",
+  "loops": "22537 late_gt1100us 1 exec_max_us 463 ctrl200_max_us 361 spi_fail 0",
+  "alt": "z -0.071 vz -0.063 acc_bias -0.052 z_target -0.071 thrust_frac 1.059",
+  "mission": "hold_s 5.0 takeoff_h 0.80 land_v 0.35",
+  "mapping": "u0->M1(右前,GPIO6) u1->M2(右后,GPIO5) u2->M3(左后,GPIO15) u3->M4(左前,GPIO16)"
+ },
+ "reset_events": []
+}
