@@ -1,7 +1,7 @@
 # AGENTS.md —— 给在本仓库工作的 AI 编码助手
 
 > 新对话先读：本文件 → [.devlog/STATE.md](.devlog/STATE.md)（当前状态与下一步）→ 需要细节时再查 [.devlog/DEVLOG.md](.devlog/DEVLOG.md)。
-> 与用户沟通、文档、注释、提交信息一律用**中文**。最后更新：2026-11-23（Stage 26）。
+> 与用户沟通、文档、注释、提交信息一律用**中文**。最后更新：2026-11-24（Stage 27 准备）。
 
 ## 1. 项目是什么
 
@@ -9,11 +9,13 @@
 
 - 控制器是**手写规则控制器 v9**（bang-bang 翻转 + PD 悬停，"训练" = 物理分析 + 512 通道仿真扫参）。**不是 RL、不是 MPC**——RL 路线已被项目自身否定（见 `note.md`、`RL/legacy/`），不要再提议用 RL / PPO 训练。
 - 链路：Python 仿真（`RL/env/vec_expert9_env.py`）→ 纯 C（`code/connection_test/main/recovery_expert9.h` + `mahony_gated.h`）→ 正式飞控固件 `code/flight_v9/`。
-- 现状：固件是**干跑版**（电机驱动未编译进固件，电机不会转）；手机无线控制已完成；**电机从未由本飞控驱动、从未起飞**。
+- 现状：板上默认是**干跑版**（电机驱动未编译进固件，电机不会转）；手机无线控制已完成并经用户手机实测；
+  电机驱动版 `build_mc`（油门上限 6%）+ 拆桨台架脚本 `motor_bench.sh` 已备好、**等用户运行**；**电机从未由本飞控驱动、从未起飞**。
 
 ## 2. 安全规则（最重要）
 
 1. **不得自行让电机转起来。** `FLIGHT_MOTOR_OUTPUT` 默认 0（不编译任何 LEDC 代码，上电即锁低 GPIO16/6/5/15）。改成 1、烧录带电机驱动的固件、或任何会让电机转的测试，都必须先得到用户明确同意，并确认**已拆桨**（首次）或**系留 + 空旷场地**（装桨）。
+   电机驱动版必须显式给油门上限 `-DFLIGHT_U_MAX=<0~1>`（缺了编译失败）；电机版固件由用户运行脚本自己烧（`motor_bench.sh` 要求输入「已拆桨」），助手不要直接烧 `build_mc`。
 2. 飞机常年**插着电池**（4.1~4.2 V），不是"没电所以安全"。
 3. 空中出问题一律**转降落**，只有触地 / 撞击 / 估计器失效 / 急停才停桨（`flight_fsm.h`）。新增保护逻辑时保持这一原则。
 4. 不要依赖 USB 串口做飞行控制：电机 12% 油门时 EMI 会触发 `ESP_RST_USB`（芯片复位）。飞行控制走手机 Wi-Fi（`web_link.c`），心跳超时 0.6 s → 降落。
@@ -42,6 +44,7 @@ code/flight_v9/      ★ 正式飞控（ESP-IDF v6.1）——见 code/flight_v9/
   main/yk_board.h      板级驱动（由 sensor_test 实测驱动抽出）
   test/                主机单测 host_test.c（62 项）+ 网页脚本测试 page_test.js
   dryrun.sh / level_trim.sh   用户自己运行的检查 / 标定脚本
+  motor_bench.sh       Stage 27 拆桨电机台架（用户运行：烧 build_mc → 3 步台架 → 烧回干跑版）
 code/sensor_test/    只读传感器固件 + 六面标定 calib.sh + 姿态检查 attitude.sh（imu_calib.h 在这里）
 code/bench_v9/       上板一致性与耗时测试固件
 code/connection_test/main/  recovery_expert9.h、mahony_gated.h（C 实现，被 flight_v9 引用）

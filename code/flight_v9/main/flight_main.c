@@ -4,6 +4,9 @@
  * ★ 安全：默认 FLIGHT_MOTOR_OUTPUT=0 —— 不含任何 LEDC / PWM 代码，上电第一件事把 4 个电机引脚拉低并 gpio_hold 锁存；
  *   控制器、安全状态机照常运行，算出的电机指令只通过串口输出（"F" 行），用于在不转电机的前提下核对整条链路方向。
  *
+ * Stage 27：电机驱动版（-DFLIGHT_MOTOR_OUTPUT=1）必须显式给油门上限 FLIGHT_U_MAX；"F" 行 out_sum 为实际写入电机的占空比之和；
+ *   遥测任务看门狗：控制循环 60 ms 没有前进 → 电机强制停转并锁死（需重启）。
+ *
  * 任务（核 1 只跑控制，所有打印 / 串口 / I2C 都在核 0）：
  *   ctrl  核 1，1 kHz：读 IMU → 标定 + 轴映射 → flight_core（门控 Mahony + 竖直互补滤波；每 5 拍跑飞行状态机 + v9 控制器）→ 电机
  *         任务：抛出 / takeoff → 回正 → 悬停 5 s → 以 0.35 m/s 降落 → 触地停桨（见 flight_fsm.h）
@@ -35,7 +38,12 @@
 #include "motor_out.h"
 #include "web_link.h"
 
-#define FW_NAME "flight_v9 (Stage 26 dry-run: phone control)"
+#if FLIGHT_MOTOR_OUTPUT
+#define FW_NAME "flight_v9 (Stage 27 MOTOR OUTPUT, throttle capped)"
+#else
+#define FW_NAME "flight_v9 (Stage 27 dry-run: phone control)"
+#endif
+#define CTRL_STALL_MS 60          /* 遥测任务看门狗：控制循环停摆超过这么久 → 强制停转并锁死（仅电机驱动版） */
 #define R2D 57.29578f
 
 /* ---------------- 共享状态 ---------------- */
@@ -100,6 +108,7 @@ static void ctrl_task(void *arg)
     uint32_t late15 = 0, late20 = 0, late50 = 0, period_max = 0;
     uint32_t baro_seen = s_baro_seq, vb_seen = s_vbatt_seq, loops = 0, late = 0, exec_max = 0, ctrl_max = 0, spi_fail = 0;
     int64_t prev = esp_timer_get_time(), last_baro_t = s_baro_t_us;
+    float out_sum = 0.0f;                          /* 实际写入电机的占空比之和（干跑版恒 0） */
     imu_raw_t r; float a[3], g[3];
     TickType_t last = xTaskGetTickCount();
 
@@ -140,7 +149,7 @@ static void ctrl_task(void *arg)
         const uint32_t cc0 = esp_cpu_get_cycle_count();
         const int ticked = fc_step(&fc, a, g, dt, !raw_zero, baro_new, baro_z, baro_dt, vb);
         if (ticked) {
-            motor_out_write(fc.u_out);
+            out_sum = motor_out_write(fc.u_out);
             const uint32_t cu = (esp_cpu_get_cycle_count() - cc0) / 240;
             if (cu > ctrl_max) ctrl_max = cu;
         }
@@ -153,7 +162,7 @@ static void ctrl_task(void *arg)
         s_snap.vbatt = fc.vbatt; s_snap.z_target = fc.fsm.z_target; s_snap.thrust_frac = fc.thrust_frac;
         s_snap.st = (uint8_t)fc.fsm.st; s_snap.mode = fc.mode; s_snap.link_ok = (uint8_t)fc_link_ok(&fc); s_snap.t_state = fc.fsm.t_state;
         memcpy(s_snap.u_cmd, fc.u_cmd, sizeof(fc.u_cmd));
-        s_snap.out_sum = FLIGHT_MOTOR_OUTPUT ? (fc.u_out[0] + fc.u_out[1] + fc.u_out[2] + fc.u_out[3]) : 0.0f;
+        s_snap.out_sum = out_sum;
         if (fc.ev_seq != s_snap.ev_seq) {
             s_snap.ev_seq = fc.ev_seq;
             const int i = (int)(fc.ev_seq % 8u);
@@ -181,6 +190,8 @@ static void print_status(void)
     snap_t s; portENTER_CRITICAL(&s_mux); s = s_snap; portEXIT_CRITICAL(&s_mux);
     printf("STATUS fw %s\n", FW_NAME);
     printf("STATUS motor_output %d\n", FLIGHT_MOTOR_OUTPUT);
+    printf("STATUS u_max %.3f\n", FLIGHT_MOTOR_OUTPUT ? (double)FLIGHT_U_MAX : 0.0);
+    printf("STATUS motor_killed %d\n", motor_out_killed());
     printf("STATUS motor_pins_level %d %d %d %d\n", gpio_get_level(16), gpio_get_level(6), gpio_get_level(5), gpio_get_level(15));
     printf("STATUS state %s\n", FSM_STATE_NAME[s.st]);
     printf("STATUS vbatt %.3f\n", s.vbatt);
@@ -205,11 +216,18 @@ static void print_status(void)
 static void telem_task(void *arg)
 {
     (void)arg;
-    uint32_t ev_seen = 0;
+    uint32_t ev_seen = 0, loops_seen = 0;
+    int64_t loops_t = esp_timer_get_time();
     TickType_t last = xTaskGetTickCount();
     for (;;) {
         vTaskDelayUntil(&last, pdMS_TO_TICKS(20));
         snap_t s; portENTER_CRITICAL(&s_mux); s = s_snap; portEXIT_CRITICAL(&s_mux);
+        const int64_t tn = esp_timer_get_time();
+        if (s.loops != loops_seen) { loops_seen = s.loops; loops_t = tn; }
+        else if (FLIGHT_MOTOR_OUTPUT && !motor_out_killed() && tn - loops_t > CTRL_STALL_MS * 1000) {
+            motor_out_kill();                     /* 控制循环停摆：电机不能停在最后一次写入的占空比上 */
+            printf("EVT %lld motor_watchdog_kill CTRL_STALL\n", (long long)(tn / 1000));
+        }
         if (s.ev_seq != ev_seen) {
             const uint32_t from = (s.ev_seq - ev_seen > 8u) ? s.ev_seq - 7u : ev_seen + 1u;
             for (uint32_t q = from; q <= s.ev_seq; q++) {
@@ -244,9 +262,10 @@ static int web_build_json(char *b, size_t n)
     web_stats_t w; web_link_stats(&w);
     float ro, pi, ya; euler(s.q, &ro, &pi, &ya);
     int len = snprintf(b, n, "{\"st\":%d,\"ts\":%.2f,\"mode\":%d,\"r\":%.1f,\"p\":%.1f,\"y\":%.1f,\"z\":%.2f,\"vz\":%.2f,\"zt\":%.2f,"
-                       "\"vb\":%.2f,\"k\":%.2f,\"u\":[%.3f,%.3f,%.3f,%.3f],\"out\":%.3f,\"mo\":%d,\"lk\":%d,\"hb\":%lu,\"gap\":%lu,\"evs\":%lu,\"ev\":\"%s\",\"evl\":[",
+                       "\"vb\":%.2f,\"k\":%.2f,\"u\":[%.3f,%.3f,%.3f,%.3f],\"out\":%.3f,\"mo\":%d,\"um\":%.3f,\"mk\":%d,\"lk\":%d,\"hb\":%lu,\"gap\":%lu,\"evs\":%lu,\"ev\":\"%s\",\"evl\":[",
                        s.st, fin(s.t_state), s.mode, fin(ro), fin(pi), fin(ya), fin(s.z), fin(s.vz), fin(s.z_target), fin(s.vbatt), fin(s.k),
-                       fin(s.u_cmd[0]), fin(s.u_cmd[1]), fin(s.u_cmd[2]), fin(s.u_cmd[3]), fin(s.out_sum), FLIGHT_MOTOR_OUTPUT, s.link_ok,
+                       fin(s.u_cmd[0]), fin(s.u_cmd[1]), fin(s.u_cmd[2]), fin(s.u_cmd[3]), fin(s.out_sum), FLIGHT_MOTOR_OUTPUT,
+                       FLIGHT_MOTOR_OUTPUT ? (double)FLIGHT_U_MAX : 0.0, motor_out_killed(), s.link_ok,
                        (unsigned long)w.hb_seq, (unsigned long)w.gap_win_ms, (unsigned long)s.ev_seq,
                        s.ev_seq ? FSM_EV_NAME[s.ev_ring[s.ev_seq % 8u].ev] : "");
     int first = 1;
@@ -331,6 +350,7 @@ void app_main(void)
     printf("BOOT_BEGIN\nBOOT fw %s\nBOOT motor_output %d\nBOOT reset_reason %d\nBOOT calib_valid %d\n", FW_NAME, FLIGHT_MOTOR_OUTPUT,
            (int)esp_reset_reason(), IMU_CALIB_VALID);
     printf("BOOT motor_pins_level %d %d %d %d\n", gpio_get_level(16), gpio_get_level(6), gpio_get_level(5), gpio_get_level(15));
+    printf("BOOT u_max %.3f\n", FLIGHT_MOTOR_OUTPUT ? (double)FLIGHT_U_MAX : 0.0);
     if (!IMU_CALIB_VALID) printf("BOOT ⚠ imu_calib.h 无效：请先运行 code/sensor_test/calib.sh 重新标定\n");
 
     vbatt_init();

@@ -45,3 +45,10 @@ code/flight_v9/build_host/
 code/flight_v9/dryrun_check.json
 code/flight_v9/dryrun_raw.csv
 code/flight_v9/dryrun_events.txt
+
+# flight_v9 Stage 27：拆桨台架本地输出（正式结果另存 RL/results/stage27/）、判据自检缓存
+code/flight_v9/motor_bench.json
+code/flight_v9/motor_bench_raw.csv
+code/flight_v9/motor_bench_events.txt
+code/flight_v9/__pycache__/
+code/flight_v9/test/__pycache__/

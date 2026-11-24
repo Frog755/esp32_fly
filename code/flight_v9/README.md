@@ -1,7 +1,9 @@
-# code/flight_v9 —— 耀坤 K1.0 正式飞控（干跑版）
+# code/flight_v9 —— 耀坤 K1.0 正式飞控
 
-> ⚠️ 当前固件 `FLIGHT_MOTOR_OUTPUT=0`：**电机驱动没有编译进固件**，上电即锁低 4 个电机引脚，任何操作都不会让电机转。
+> ⚠️ 默认编译（`build/`）是**干跑版** `FLIGHT_MOTOR_OUTPUT=0`：电机驱动没有编译进固件，上电即锁低 4 个电机引脚，任何操作都不会让电机转。
 > 控制器照常计算，算出的电机指令只在串口和手机网页上显示。
+> **电机驱动版**（`build_mc/`，Stage 27）：`-DFLIGHT_MOTOR_OUTPUT=1 -DFLIGHT_U_MAX=0.06`，油门上限必须显式指定；手机网页顶部红条显示「电机会真转（油门上限 6%）」。
+> 控制循环 60 ms 不前进 → 看门狗把电机强制停转并锁死（重启恢复）。只通过 `motor_bench.sh` 烧录（要求先拆桨）。
 
 ## 飞行流程
 
@@ -33,8 +35,9 @@
 | 脚本 | 用途 |
 |---|---|
 | `dryrun.sh` | 干跑检查 8 步：平放 / 右侧朝下 / 机头朝下 / 左侧朝下 / 逆时针自转 / 倒扣 / 翻回 / 安全逻辑（含起飞超时降落、急停、链路丢失）；`--only=1,8` 只跑指定步 |
+| `motor_bench.sh` | **电机会真转**（拆桨、油门上限 6%）：确认拆桨 → 烧 `build_mc` → A 起飞超时→自动降落→触地停桨 / B 手机急停 / C 关手机 WLAN→链路丢失停桨 → 默认烧回干跑版；`--no-flash` 跳过烧录 |
 | `level_trim.sh` | 测 IMU 安装倾斜（平面上测 → 原地转 180° → 转回复测），生成 `level_trim.h` 后需重新编译烧录 |
-| `test/run_host_test.sh` | 电脑上的单测：控制器方向、飞行状态机、竖直滤波、心跳超时（62 项）+ 手机网页脚本（15 项） |
+| `test/run_host_test.sh` | 电脑上的单测：控制器方向、飞行状态机、竖直滤波、心跳超时（62 项）+ 手机网页脚本（17 项）+ 台架脚本判据（6 项） |
 | `timing_probe.py` | 每 10 s 统计一次 1 kHz 控制循环的迟到情况 |
 
 ## 编译
@@ -43,4 +46,5 @@
 source ~/.espressif/tools/activate_idf_v6.1.sh; idf.py build; idf.py -p /dev/ttyACM0 flash
 ```
 重新标定（`../sensor_test/calib.sh`、`level_trim.sh`）后都要重新编译烧录。
-电机驱动版只允许做编译检查：`idf.py -B build_mc -DFLIGHT_MOTOR_OUTPUT=1 build`（**不要烧录**，真转电机前先和用户确认）。
+电机驱动版：`idf.py -B build_mc -DFLIGHT_MOTOR_OUTPUT=1 -DFLIGHT_U_MAX=0.06 build`（不给 `FLIGHT_U_MAX` 会编译失败）。
+**不要用 idf.py 直接烧 build_mc**：由用户运行 `./motor_bench.sh` 烧录（会先要求确认拆桨，结束默认烧回干跑版）。

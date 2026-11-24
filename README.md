@@ -41,7 +41,7 @@ esp32_fly/
 ├── code/                    # 嵌入式飞控工程 (ESP-IDF C/C++)
 │   ├── bench_v9/            # Stage 22 上板测试固件：C vs PC 测试向量、单步耗时、1 kHz 循环抖动（不驱动电机）
 │   ├── sensor_test/         # Stage 23 真机只读传感器固件（无 PWM 代码）+ 六面标定 calib.sh + 姿态检查 attitude.sh
-│   ├── flight_v9/           # ★ Stage 24–26 正式飞控（干跑版，电机驱动不编译）：回正-悬停-降落状态机、手机网页控制、dryrun.sh、level_trim.sh（见 code/flight_v9/README.md）
+│   ├── flight_v9/           # ★ Stage 24–27 正式飞控（默认干跑版；电机驱动版需显式油门上限）：回正-悬停-降落状态机、手机网页控制、dryrun.sh、level_trim.sh、motor_bench.sh（见 code/flight_v9/README.md）
 │   └── connection_test/main/
 │       ├── recovery_expert9.h   # ★ v9 控制器纯 C（200 Hz）
 │       ├── mahony_gated.h       # ★ 门控 Mahony 姿态估计器纯 C（1 kHz）
@@ -214,7 +214,10 @@ esp32_fly/
 2. ✓ 正式飞控干跑版 `code/flight_v9/`（Stage 24）：主机单测 34/34，真机方向核对通过；
 3. ✓ 飞行任务与降落（Stage 25）：回正 → 悬停 5 s → 自动降落 → 触地停桨，软件在环仿真通过，主机单测 51/51；IMU 安装倾斜已修正；
 4. ✓ 手机无线控制（Stage 26）：Wi-Fi 热点 + 网页 + WebSocket 心跳，链路丢失自动降落 / 上锁；主机单测 62/62 + 网页脚本 15/15，板上干跑链路丢失测试通过；
-5. 待做：用户用手机实测网页与链路质量 → 首次真转电机方案（拆桨台架 → 系留装桨）→ 首飞。
+5. ✓ 用户手机实测网页与热点（11-24）；
+6. 进行中（Stage 27）：电机驱动版 `build_mc`（油门上限 6%，必须显式指定上限；控制循环停摆 60 ms 看门狗锁死电机）+ 拆桨台架脚本 `motor_bench.sh`
+   （起飞超时→自动降落→触地停桨 / 手机急停 / 链路丢失停桨），等用户拆桨后运行；
+7. 待做：系留 + 装桨 + 空旷场地首飞（takeoff +0.8 m → 悬停 5 s → 自动降落）→ 手持松手 → 抛出。
 
 详见 [.devlog/STATE.md](.devlog/STATE.md)。
 

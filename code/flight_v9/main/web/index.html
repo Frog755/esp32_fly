@@ -99,7 +99,7 @@ function render() {
   $('r').textContent = f(d.r, 1); $('p').textContent = f(d.p, 1); $('y').textContent = f(d.y, 0);
   $('z').textContent = f(d.z, 2); $('vz').textContent = f(d.vz, 2); $('zt').textContent = st >= 2 ? f(d.zt, 2) : '—';
   for (let i = 0; i < 4; i++) $('u' + i).style.height = Math.max(0, Math.min(1, d.u[i])) * 100 + '%';
-  $('mo').textContent = d.mo ? '⚠ 电机驱动已启用：电机会真转' : '干跑版：电机驱动未编译，电机不会转（条形图是控制器算出的指令）';
+  $('mo').textContent = d.mk ? '⛔ 电机已被看门狗锁死（控制循环停摆），请重启板子' : d.mo ? '⚠ 电机驱动已启用：电机会真转（油门上限 ' + f((d.um || 0) * 100, 0) + '%）' : '干跑版：电机驱动未编译，电机不会转（条形图是控制器算出的指令）';
   $('mo').style.background = d.mo ? '#c62828' : '#263238';
   const ts = d.ts;
   const H = [
