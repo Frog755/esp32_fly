@@ -1,0 +1,33 @@
+{
+ "transfer": {
+  "missing_first": 0,
+  "refetch": 0
+ },
+ "before": {
+  "boot": 50139,
+  "n": 3893,
+  "on_s": 7.305,
+  "dump_s": 3.2723548412323
+ },
+ "timing": {
+  "window_30s": {
+   "loops": 30069,
+   "late_gt1100us": 1567,
+   "late_gt1500us": 0,
+   "late_gt2000us": 0,
+   "late_gt5000us": 0
+  },
+  "since_boot": {
+   "loops": 32363,
+   "late_gt1100us": 1673,
+   "exec_max_us": 709,
+   "ctrl200_max_us": 421,
+   "spi_fail": 0,
+   "late_gt1500us": 1,
+   "late_gt2000us": 0,
+   "late_gt5000us": 0,
+   "period_max_us": 1501
+  }
+ },
+ "passed": true
+}

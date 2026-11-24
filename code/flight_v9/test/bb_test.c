@@ -28,7 +28,7 @@ int main(void)
     bb_store_t *s = malloc(sizeof(bb_store_t));
     srand(7); for (size_t i = 0; i < sizeof(bb_store_t); i++) ((uint8_t *)s)[i] = (uint8_t)rand();   /* 断电后的随机内容 */
     bb_writer_t w;
-    bb_begin(&w, s, 1);
+    bb_begin(&w, s, 1, 0);
     check(w.boot == 1 && w.cur == &s->slot[1] && !bb_slot_valid(&s->slot[0]), "断电后（随机内容）开机：boot 1 写槽 1，槽 0 作废");
     check(bb_scan(&s->slot[1]).n_valid == 0, "新槽里的随机内容全部被过滤（有效 0 条）");
 
@@ -55,8 +55,10 @@ int main(void)
     /* 写一个 \"空中复位\" 前的通电段，然后模拟复位 */
     for (int i = 0; i < 30; i++) { bb_rec_t r = mk(t += 5, 3, 1); bb_write(&w, &r, 3, 1); }
     const bb_range_t before = bb_scan(&s->slot[1]);
-    bb_writer_t w2; bb_begin(&w2, s, 4 /* PANIC */);
-    check(w2.boot == 2 && w2.cur == &s->slot[0] && bb_slot_valid(&s->slot[0]), "复位后开机：boot 2 改写槽 0");
+    memset(s->guard, 0x5A, 128);                   /* 模拟开机 MSPI 时序调校往 PSRAM 物理地址 0 写测试数据 */
+    bb_writer_t w2; bb_begin(&w2, s, 4 /* PANIC */, 12345);
+    check(w2.boot == 2 && w2.cur == &s->slot[0] && bb_slot_valid(&s->slot[0]),
+          "复位后开机（开头 128 字节被时序调校改写）：存储头仍有效，boot 2 改写槽 0");
     const bb_range_t after = bb_scan(&s->slot[1]);
     check(after.hi == before.hi && after.n_valid == before.n_valid && s->slot[1].rec[after.hi % BB_CAP].st == 3,
           "上一槽（出事那次）原样保留，最后一条是复位前的 RECOVER 记录");
@@ -88,6 +90,24 @@ int main(void)
     }
     fclose(f); fclose(e);
     check(n0 == 50 && n1 == before.n_valid, "读出条数：当前槽 50、上一槽全部有效记录");
+    /* 补发输出（bbget）：两个槽各取全范围，给 Python 测\"丢行 → 补发合并\" */
+    f = fopen("../build_host/bb_get.txt", "w");
+    { const bb_range_t r0 = bb_scan(&s->slot[0]), r1 = bb_scan(&s->slot[1]);
+      const uint32_t g0 = bb_dump_get(s, 0, r0.lo, r0.hi, out_file, f, tmp, line);
+      const uint32_t g1 = bb_dump_get(s, 1, r1.lo + 5, r1.hi, out_file, f, tmp, line);
+      const uint32_t g2 = bb_dump_get(s, 1, r1.lo, r1.lo + 4, out_file, f, tmp, line);
+      check(g0 == 50 && g1 + g2 == before.n_valid, "bbget 分段补发条数正确"); }
+    fclose(f);
+
+    /* 存储头被破坏（如断电）：随机开机号，残留旧记录不被当成本次有效记录 */
+    {
+        bb_store_t *s2 = malloc(sizeof(bb_store_t)); memcpy(s2, s, sizeof(bb_store_t));
+        s2->magic ^= 1u;
+        bb_writer_t w3; bb_begin(&w3, s2, 1, 777);
+        check(w3.boot == 778 && bb_scan(w3.cur).n_valid == 0 && !bb_slot_valid(&s2->slot[(w3.boot & 1u) ^ 1u]),
+              "存储头损坏：随机开机号 778，新槽里残留旧记录全部无效，另一槽作废");
+        free(s2);
+    }
 
     /* 槽无效时的输出 */
     s->slot[0].magic = 0; f = fopen("../build_host/bb_dump_invalid.txt", "w");

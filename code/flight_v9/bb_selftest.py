@@ -64,14 +64,28 @@ class B:
         return st
 
     def dump(self):
+        """bbdump + 按缺失区间 bbget 补发（与 bb_read.py 同一套解析）；返回 (行, 用时, 首次缺失条数, 补发次数)"""
         t0 = time.time(); self.send('bbdump')
-        ls = self.pump(90, until=lambda l: l == 'BB_DONE')
-        return [l for l in ls if l.startswith('BB')], time.time() - t0
+        ls = [l for l in self.pump(90, until=lambda l: l == 'BB_DONE') if l.startswith('BB')]
+        sl = bb_read.parse(ls)
+        miss0 = sum(b - a + 1 for d in sl.values() for a, b in bb_read.missing_ranges(d))
+        nref = 0
+        for _ in range(6):
+            todo = [(si, a, b) for si, d in sorted(sl.items()) for a, b in bb_read.missing_ranges(d)]
+            if not todo: break
+            for si, a, b in todo:
+                self.send(f'bbget {si} {a} {b}'); nref += 1
+                ls += [l for l in self.pump(30, until=lambda l: l.startswith('BB_GET_END')) if l.startswith('BB')]
+            sl = bb_read.parse(ls)
+        return ls, time.time() - t0, miss0, nref
 
 
 b = B()
-print('等待飞控数据……'); b.pump(2)
+print('等待飞控数据……')
+b.pump(25, until=lambda l: l.startswith('F '))      # 开机约 8~10 s 才有 F 行；之前问 status 会没有回应
+b.pump(1)
 st = b.status()
+if 'fw' not in st: b.pump(2); st = b.status()
 print('   ' + st.get('fw', '?'))
 check('Stage 28 dry-run' in st.get('fw', '') and st.get('motor_output') == '0' and st.get('motor_pins_level') == '0 0 0 0',
       '干跑版 Stage 28 固件、电机驱动未编译、电机引脚全低')
@@ -92,8 +106,10 @@ check(st.get('blackbox', '').endswith('frozen 1'), '停转 10 s 后冻结')
 b.hb = False; b.pump(1)
 
 print('\n[2] 读出（bbdump）')
-lines, dt = b.dump()
+lines, dt, miss0, nref = b.dump()
 sl = bb_read.parse(lines)
+print(f'   首次读出传输缺失 {miss0} 条，补发 {nref} 次')
+res['transfer'] = dict(missing_first=miss0, refetch=nref)
 cur = next(d for d in sl.values() if d.get('valid') and d['is_current'])
 cur_si = next(si for si, d in sl.items() if d is cur)
 n_bytes = sum(len(l) for l in lines)
@@ -102,7 +118,7 @@ for l in bb_read.summary(cur_si, cur): print(l)
 rs = [bb_read.scaled(r) for r in cur['recs']]
 on = [s for s in rs if s['on']]
 names = [s['ev'] for s in rs if s['ev']]
-check(cur.get('crc_ok'), 'crc32 / 条数校验通过')
+check(cur.get('complete'), '每行 crc32 通过、条数与槽头一致（完整）')
 check(cur['frozen'] and 6.5 < len(on) / 200 < 9.0, f'当前槽已冻结、含通电段 {len(on) / 200:.2f} s')
 check(names[-4:] == ['armed', 'takeoff', 'land_takeoff_timeout', 'landed'] or
       ['armed', 'takeoff', 'land_takeoff_timeout', 'landed'] == [n for n in names if n in ('armed', 'takeoff', 'land_takeoff_timeout', 'landed')][-4:],
@@ -120,11 +136,12 @@ bl = [l for l in boot if l.startswith('BOOT blackbox') or l.startswith('BOOT res
 print('   ' + ' | '.join(bl))
 check(any('prev slot valid' in l for l in bl), '开机日志报告上一槽有效')
 b.pump(1)
-lines2, _ = b.dump()
+lines2, _, miss2, nref2 = b.dump()
 sl2 = bb_read.parse(lines2)
+print(f'   复位后读出传输缺失 {miss2} 条，补发 {nref2} 次')
 prev = next((d for d in sl2.values() if d.get('valid') and d['boot'] == cur['boot']), None)
 now = next(d for d in sl2.values() if d.get('valid') and d['is_current'])
-check(prev is not None and not prev['is_current'] and prev.get('crc_ok'), '上一槽（复位前那次开机）读出、crc 通过')
+check(prev is not None and not prev['is_current'] and prev.get('complete'), '上一槽（复位前那次开机）完整读出')
 same = prev is not None and prev['recs'] == before
 check(same, f'上一槽与复位前读出逐条逐字段一致（{len(before)} 条）')
 check(now['boot'] == cur['boot'] + 1 and now['reset_name'] == 'SW', f'新开机号 {now["boot"]}、复位原因 {now["reset_name"]}')
@@ -132,13 +149,25 @@ pi = next(si for si, d in sl2.items() if d is prev) if prev else None
 if prev:
     for l in bb_read.summary(pi, prev, now['reset_name']): print(l)
 
-print('\n[4] 时序（黑匣子开启，30 s）')
+def counters(st):
+    p = (st.get('loops', '') + ' ' + st.get('period', '')).split()
+    d = {'loops': int(p[0])} if p and p[0].isdigit() else {}
+    for k, v in zip(p[1::2], p[2::2]):
+        if v.isdigit(): d[k] = int(v)
+    return d
+
+print('\n[4] 时序：黑匣子正常记录时 30 s（计数器差值，不含读出期间）')
+c_dump_end = counters(b.status())
 b.pump(30)
-st = b.status()
-print('   ' + st.get('loops', '?')); print('   ' + st.get('period', '?'))
-res['timing'] = dict(loops=st.get('loops'), period=st.get('period'))
-per = dict(zip(st.get('period', '').split()[::2], st.get('period', '').split()[1::2]))
-check(per.get('late_gt2000us') == '0', '没有 >2 ms 的控制周期')
+c1 = counters(b.status())
+d = {k: c1.get(k, 0) - c_dump_end.get(k, 0) for k in ('loops', 'late_gt1100us', 'late_gt1500us', 'late_gt2000us', 'late_gt5000us')}
+print(f'   30 s：{d["loops"]} 拍，>1.1 ms {d["late_gt1100us"]}（{d["late_gt1100us"] / max(1, d["loops"]) * 100:.1f}%），'
+      f'>1.5 ms {d["late_gt1500us"]}，>2 ms {d["late_gt2000us"]}，>5 ms {d["late_gt5000us"]}')
+print(f'   （开机以来含两次读出：period_max {c1.get("period_max_us")} μs、>2 ms {c1.get("late_gt2000us")} 次——读出只在未解锁时允许）')
+res['timing'] = dict(window_30s=d, since_boot=c1)
+check(d['late_gt2000us'] == 0, '正常记录时没有 >2 ms 的控制周期')
+rec_per = max(bb_read.scaled(r)['per_max_us'] for r in before)
+check(rec_per < 2000, f'黑匣子自己记下的最长周期 {rec_per} μs < 2 ms（含台上通电流程）')
 os.makedirs('blackbox', exist_ok=True)
 with open('blackbox/selftest_dump_before_reboot.txt', 'w') as f: f.write('\n'.join(lines) + '\n')
 with open('blackbox/selftest_dump_after_reboot.txt', 'w') as f: f.write('\n'.join(lines2) + '\n')

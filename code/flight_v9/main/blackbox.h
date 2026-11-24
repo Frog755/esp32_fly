@@ -69,7 +69,12 @@ typedef struct __attribute__((packed, aligned(64))) {
 } bb_slot_t;
 _Static_assert(sizeof(bb_slot_t) == 64 + BB_CAP * BB_REC_SIZE, "槽头 64 字节");
 
+/* BB_GUARD：存储区最前面空出 4 KB 不用。ESP32-S3 每次开机做 MSPI 时序调校，会往 PSRAM **物理地址 0** 写 128 字节测试数据
+ * （esp_hw_support/mspi_timing_tuning/port/esp32s3：MSPI_TIMING_PSRAM_TEST_DATA_ADDR 0），而 noinit 段正好从 PSRAM 开头开始——
+ * Stage 28 上板自检实测：reboot 后存储头被冲掉、开机号回到 1。 */
+#define BB_GUARD 4096u
 typedef struct __attribute__((packed, aligned(64))) {
+    uint8_t  guard[BB_GUARD];
     uint32_t magic, boot_seq, chk, _r;
     uint8_t  _pad[48];
     bb_slot_t slot[2];
@@ -106,13 +111,15 @@ static inline int bb_rec_valid(const bb_slot_t *h, uint32_t pos)
     return r->boot == (uint16_t)h->boot && r->idx % BB_CAP == pos && r->chk == bb_rec_chk(r);
 }
 
-/* ---------------- 开机：选槽 ---------------- */
-static inline void bb_begin(bb_writer_t *w, bb_store_t *s, uint32_t reset_reason)
+/* ---------------- 开机：选槽 ----------------
+ * seed：随机数（固件用 esp_random）。存储头无效（断电 / 被意外改写）时用它起一个随机开机号，
+ * 这样槽里残留的旧记录（开机号不同）不会被误认成本次的有效记录。 */
+static inline void bb_begin(bb_writer_t *w, bb_store_t *s, uint32_t reset_reason, uint32_t seed)
 {
     uint32_t boot;
     if (s->magic == BB_MAGIC && s->chk == bb_store_chk(s)) boot = s->boot_seq + 1u;
     else {                                         /* 断电后 PSRAM 是随机数：两个槽都作废 */
-        boot = 1u;
+        boot = 1u + seed % 60000u;
         s->slot[0].magic = 0u; s->slot[1].magic = 0u;
     }
     if ((uint16_t)boot == 0u) boot++;              /* boot 号低 16 位不为 0 */
@@ -208,9 +215,12 @@ static inline uint32_t bb_crc32(uint32_t crc, const uint8_t *p, uint32_t n)
 
 /* ---------------- 读出格式（固件串口与主机单测共用同一份代码） ----------------
  *   BB_SLOT <槽> <boot> <复位原因> <lo> <hi> <有效条数> <是否当前槽> <是否冻结>      （槽无效：BB_SLOT <槽> invalid）
- *   BB <槽> <base64：最多 16 条记录，按 idx 递增、只含有效记录>
- *   BB_END <槽> <输出条数> <输出字节的 crc32，8 位十六进制>
- * out(ctx, line) 每次输出一整行（不含换行）；tmp ≥ 1024 字节、line ≥ 1400 字节由调用方提供。返回输出条数。 */
+ *   BB <槽> <首条 idx> <条数> <本行数据 crc32 8 位十六进制> <base64：最多 16 条有效记录，idx 递增>
+ *   BB_END <槽> <输出条数> <全部输出字节的 crc32>
+ * 补发（bbget <槽> <lo> <hi>）：BB_GET <槽> <lo> <hi> / 若干 BB 行 / BB_GET_END <槽> <条数>
+ * USB-Serial-JTAG 在电脑 50 ms 内没取走数据时会静默丢字（Stage 28 上板实测 1.4 MB 丢了 ~1%），
+ * 所以每行自带 idx 与 crc，读出脚本发现缺的就用 bbget 补发，直到条数与槽头一致。
+ * out(ctx, line) 每次输出一整行（不含换行）；tmp ≥ 1024 字节、line ≥ 1400 字节由调用方提供。 */
 typedef void (*bb_out_fn)(void *ctx, const char *line);
 static inline int bb_u32s(char *o, uint32_t v)        /* 无 printf 依赖的十进制 */
 {
@@ -219,35 +229,71 @@ static inline int bb_u32s(char *o, uint32_t v)        /* 无 printf 依赖的十
     while (n) o[k++] = t[--n];
     o[k] = 0; return k;
 }
+static inline int bb_hex8(char *o, uint32_t v)
+{
+    static const char H[] = "0123456789abcdef";
+    for (int i = 7; i >= 0; i--) *o++ = H[(v >> (4 * i)) & 15u];
+    *o = 0; return 8;
+}
+
+/* 输出 [lo, hi] 内的有效记录（BB 行）；*crc 累计全部数据字节的 crc32。返回条数 */
+static inline uint32_t bb_dump_range(const bb_store_t *s, int si, uint32_t lo, uint32_t hi, bb_out_fn out, void *ctx,
+                                     uint8_t *tmp, char *line, uint32_t *crc)
+{
+    const bb_slot_t *h = &s->slot[si];
+    uint32_t n_out = 0, first = 0; int nb = 0, nr = 0;
+    if (!bb_slot_valid(h) || hi < lo) return 0;
+    for (uint32_t idx = lo;; idx++) {
+        const uint32_t p = idx % BB_CAP;
+        if (bb_rec_valid(h, p) && h->rec[p].idx == idx) {
+            if (!nr) first = idx;
+            memcpy(tmp + nb, &h->rec[p], BB_REC_SIZE); nb += BB_REC_SIZE; nr++; n_out++;
+        }
+        if (nr == 16 || (idx == hi && nr)) {
+            *crc = bb_crc32(*crc, tmp, (uint32_t)nb);
+            int o = 0;
+            memcpy(line, "BB ", 3); o = 3; o += bb_u32s(line + o, (uint32_t)si); line[o++] = ' ';
+            o += bb_u32s(line + o, first); line[o++] = ' '; o += bb_u32s(line + o, (uint32_t)nr); line[o++] = ' ';
+            o += bb_hex8(line + o, bb_crc32(0, tmp, (uint32_t)nb)); line[o++] = ' ';
+            bb_b64(tmp, nb, line + o);
+            out(ctx, line); nb = 0; nr = 0;
+        }
+        if (idx == hi) break;
+    }
+    return n_out;
+}
+
 static inline uint32_t bb_dump_slot(const bb_store_t *s, int si, int is_cur, int frozen, bb_out_fn out, void *ctx,
                                     uint8_t *tmp, char *line)
 {
     const bb_slot_t *h = &s->slot[si];
-    int o = 0;
+    int o;
     const bb_range_t rg = bb_scan(h);
     memcpy(line, "BB_SLOT ", 8); o = 8; o += bb_u32s(line + o, (uint32_t)si);
     if (!bb_slot_valid(h)) { memcpy(line + o, " invalid", 9); out(ctx, line); return 0; }
     const uint32_t f[7] = {h->boot, h->reset_reason, rg.lo, rg.hi, rg.n_valid, (uint32_t)is_cur, (uint32_t)frozen};
     for (int i = 0; i < 7; i++) { line[o++] = ' '; o += bb_u32s(line + o, f[i]); }
     out(ctx, line);
-    uint32_t crc = 0, n_out = 0; int nb = 0;
-    for (uint32_t idx = rg.lo; rg.n_valid && idx <= rg.hi; idx++) {
-        const uint32_t p = idx % BB_CAP;
-        if (bb_rec_valid(h, p) && h->rec[p].idx == idx) { memcpy(tmp + nb, &h->rec[p], BB_REC_SIZE); nb += BB_REC_SIZE; n_out++; }
-        if (nb == 16 * (int)BB_REC_SIZE || (idx == rg.hi && nb)) {
-            crc = bb_crc32(crc, tmp, (uint32_t)nb);
-            memcpy(line, "BB ", 3); o = 3; o += bb_u32s(line + o, (uint32_t)si); line[o++] = ' ';
-            bb_b64(tmp, nb, line + o);
-            out(ctx, line); nb = 0;
-        }
-    }
-    static const char H[] = "0123456789abcdef";
+    uint32_t crc = 0;
+    const uint32_t n_out = rg.n_valid ? bb_dump_range(s, si, rg.lo, rg.hi, out, ctx, tmp, line, &crc) : 0u;
     memcpy(line, "BB_END ", 7); o = 7; o += bb_u32s(line + o, (uint32_t)si); line[o++] = ' ';
-    o += bb_u32s(line + o, n_out); line[o++] = ' ';
-    for (int i = 7; i >= 0; i--) line[o++] = H[(crc >> (4 * i)) & 15u];
-    line[o] = 0;
+    o += bb_u32s(line + o, n_out); line[o++] = ' '; bb_hex8(line + o, crc);
     out(ctx, line);
     return n_out;
+}
+
+/* 补发：bbget <槽> <lo> <hi> */
+static inline uint32_t bb_dump_get(const bb_store_t *s, int si, uint32_t lo, uint32_t hi, bb_out_fn out, void *ctx,
+                                   uint8_t *tmp, char *line)
+{
+    int o; uint32_t crc = 0;
+    memcpy(line, "BB_GET ", 7); o = 7; o += bb_u32s(line + o, (uint32_t)si); line[o++] = ' ';
+    o += bb_u32s(line + o, lo); line[o++] = ' '; bb_u32s(line + o, hi);
+    out(ctx, line);
+    const uint32_t n = (si == 0 || si == 1) ? bb_dump_range(s, si, lo, hi, out, ctx, tmp, line, &crc) : 0u;
+    memcpy(line, "BB_GET_END ", 11); o = 11; o += bb_u32s(line + o, (uint32_t)si); line[o++] = ' '; bb_u32s(line + o, n);
+    out(ctx, line);
+    return n;
 }
 
 #endif /* BLACKBOX_H */

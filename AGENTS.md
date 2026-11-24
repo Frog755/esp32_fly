@@ -81,6 +81,7 @@ cd RL/scripts && python3 verify_expert9_c_equivalence.py [--quick]
 - `source activate_idf_v6.1.sh` 放进 bash 脚本里会让脚本直接退出；要在 `run_command` 的命令行里内联 source。
 - 长任务（编译、仿真）用后台运行 + 日志文件，再轮询日志；连接偶尔断开，断开后先查文件 / 进程状态再决定是否重跑。
 - 改了 `sdkconfig.defaults` 后要把旧 `sdkconfig` 放回收站再 `idf.py reconfigure build`，否则新选项不生效。
+- ESP32-S3 开机 MSPI 时序调校会写 PSRAM 物理地址 0 的 128 字节（黑匣子已留 4 KB 保护区）；USB-Serial-JTAG 的 printf 层在电脑 50 ms 没读时会静默丢字，大量数据要用 `usb_serial_jtag_write_bytes` 阻塞写并带校验。
 - 不要让笔记本连飞机热点：笔记本 Wi-Fi 是远程连接的通道，断了就失联。热点只能用 `nmcli dev wifi list` 扫描确认（常要扫 3~5 轮）。
 
 ## 7. 工作约定

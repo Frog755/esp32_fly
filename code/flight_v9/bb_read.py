@@ -28,34 +28,66 @@ def chk_ok(b):
     return x == b[15]
 
 
-def parse(lines):
-    """返回 {槽号: dict(meta…, recs=[原始字段 dict], crc_ok, n_end)}"""
-    slots, cur = {}, None
+def parse(lines, slots=None):
+    """解析读出文本（可多次调用，把补发的 BB_GET 段合并进同一个 slots）。
+    返回 {槽号: dict(meta…, recs=[按 idx 排序的原始字段 dict], complete, crc_ok, bad_lines)}"""
+    slots = {} if slots is None else slots
     for ln in lines:
         p = ln.strip().split()
         if not p:
             continue
-        if p[0] == 'BB_SLOT':
-            s = int(p[1])
+        if p[0] == 'BB_SLOT' and len(p) >= 3:
+            s_ = int(p[1])
             if p[2] == 'invalid':
-                slots[s] = dict(valid=False, recs=[]); continue
+                slots[s_] = dict(valid=False, recs=[], by_idx={}); continue
+            if len(p) < 9:
+                continue
             b, rr, lo, hi, nv, ic, fz = map(int, p[2:9])
-            slots[s] = dict(valid=True, boot=b, reset_reason=rr, reset_name=RESET.get(rr, str(rr)), lo=lo, hi=hi, n_valid=nv,
-                            is_current=bool(ic), frozen=bool(fz), recs=[], crc=0, bad_chk=0)
-            cur = slots[s]
-        elif p[0] == 'BB' and len(p) == 3 and cur is not None:
-            data = base64.b64decode(p[2])
-            cur['crc'] = zlib.crc32(data, cur['crc'])
-            for i in range(0, len(data) - 63, 64):
-                b = data[i:i + 64]
+            old = slots.get(s_, {})
+            keep = old.get('by_idx', {}) if old.get('boot') == b else {}
+            slots[s_] = dict(valid=True, boot=b, reset_reason=rr, reset_name=RESET.get(rr, str(rr)), lo=lo, hi=hi, n_valid=nv,
+                             is_current=bool(ic), frozen=bool(fz), by_idx=keep, bad_lines=old.get('bad_lines', 0), bad_chk=0)
+        elif p[0] == 'BB' and len(p) == 6:
+            try:
+                s_, first, n = int(p[1]), int(p[2]), int(p[3]); want = int(p[4], 16)
+                data = base64.b64decode(p[5], validate=True)
+            except Exception:
+                d = slots.get(int(p[1]) if p[1].isdigit() else -1)
+                if d: d['bad_lines'] = d.get('bad_lines', 0) + 1
+                continue
+            d = slots.get(s_)
+            if d is None or not d.get('valid'):
+                continue
+            if len(data) != 64 * n or zlib.crc32(data) != want:
+                d['bad_lines'] += 1; continue
+            for k in range(n):
+                b = data[64 * k:64 * k + 64]
                 if not chk_ok(b):
-                    cur['bad_chk'] += 1; continue
-                cur['recs'].append(dict(zip(RAW, REC.unpack(b))))
-        elif p[0] == 'BB_END':
-            s = int(p[1]); d = slots.get(s)
-            if d and d.get('valid'):
-                d['n_end'] = int(p[2]); d['crc_ok'] = (d['crc'] & 0xFFFFFFFF) == int(p[3], 16) and d['n_end'] == len(d['recs'])
+                    d['bad_chk'] += 1; continue
+                r = dict(zip(RAW, REC.unpack(b)))
+                if r['boot'] == (d['boot'] & 0xFFFF):
+                    d['by_idx'][r['idx']] = r
+    for d in slots.values():
+        if d.get('valid'):
+            d['recs'] = [d['by_idx'][k] for k in sorted(d['by_idx'])]
+            d['complete'] = len(d['recs']) == d['n_valid']
+            d['crc_ok'] = d['complete']                       # 每行已单独校验 crc32；条数与槽头一致即完整
     return slots
+
+
+def missing_ranges(d, max_ranges=200):
+    """槽 d 里缺失的 idx 区间 [(lo, hi), …]（按槽头 lo..hi 计算）"""
+    if not d.get('valid') or not d['n_valid']:
+        return []
+    have = d['by_idx']; out = []; a = None
+    for idx in range(d['lo'], d['hi'] + 1):
+        if idx not in have:
+            if a is None: a = idx
+        elif a is not None:
+            out.append((a, idx - 1)); a = None
+    if a is not None:
+        out.append((a, d['hi']))
+    return out[:max_ranges]
 
 
 def scaled(r):
@@ -86,7 +118,7 @@ def summary(si, d, ended_by=None):
     rs = [scaled(r) for r in d['recs']]
     out = [f'槽 {si}：开机号 {d["boot"]}（这次开机的复位原因 {d["reset_name"]}）{"【当前】" if d["is_current"] else ""}'
            f'{"【已冻结】" if d["frozen"] else ""}  记录 {len(rs)} 条 / {len(rs) / 200:.1f} s  校验 {"✓" if d.get("crc_ok") else "✗"}'
-           + (f'  坏记录 {d["bad_chk"]}' if d['bad_chk'] else '')]
+           + (f'  坏记录 {d["bad_chk"]}' if d['bad_chk'] else '') + (f'  传输坏行 {d["bad_lines"]}（已补发）' if d.get('bad_lines') else '')]
     if not rs:
         return out
     gaps = sum(1 for a, b in zip(rs, rs[1:]) if b['idx'] != a['idx'] + 1)
@@ -125,13 +157,10 @@ def write_csv(path, d):
             f.write(','.join(str(s[k]) for k in keys[:-3]) + f',{e[0]:.2f},{e[1]:.2f},{e[2]:.2f}\n')
 
 
-def read_serial(port):
-    import serial
-    ser = serial.Serial(port, 115200, timeout=0.2)
-    time.sleep(0.2); ser.reset_input_buffer()
-    ser.write(b'bbdump\n')
+def _collect(ser, cmd, end_prefix, quiet=False, budget=120):
+    ser.write((cmd + '\n').encode())
     buf, lines, t0, last = '', [], time.time(), time.time()
-    while time.time() - t0 < 120:
+    while time.time() - t0 < budget:
         data = ser.read(65536)
         if data:
             last = time.time()
@@ -140,18 +169,37 @@ def read_serial(port):
                 ln, buf = buf.split('\n', 1); ln = ln.strip()
                 if ln.startswith('BB'):
                     lines.append(ln)
-                    if ln.startswith('BB_SLOT'):
+                    if ln.startswith('BB_SLOT') and not quiet:
                         print('   ' + ln, flush=True)
-                elif ln.startswith('CLI') and 'bbdump' in ln:
+                elif ln.startswith('CLI'):
                     print('   ' + ln)
-                if ln == 'BB_DONE':
-                    return lines
-        elif time.time() - last > 5:
+                if ln.startswith(end_prefix):
+                    return lines, True
+        elif time.time() - last > 6:
             break
+    return lines, False
+
+
+def read_serial(port, rounds=6):
+    import serial
+    ser = serial.Serial(port, 115200, timeout=0.2)
+    time.sleep(0.2); ser.reset_input_buffer()
+    lines, done = _collect(ser, 'bbdump', 'BB_DONE')
     if not any(l.startswith('BB_SLOT') for l in lines):
         sys.exit('✗ 板子没有回应 bbdump（固件是不是 Stage 28 以后的？是否已解锁中？）')
-    print('⚠ 没收到 BB_DONE，数据可能不完整')
-    return lines
+    slots = parse(lines)
+    n_refetch = 0
+    for _ in range(rounds):
+        todo = [(si, a, b) for si, d in sorted(slots.items()) for a, b in missing_ranges(d)]
+        if not todo:
+            break
+        print(f'   缺 {sum(b - a + 1 for _, a, b in todo)} 条（{len(todo)} 段），补发中……', flush=True)
+        for si, a, b in todo:
+            more, _ = _collect(ser, f'bbget {si} {a} {b}', 'BB_GET_END', quiet=True, budget=30)
+            lines += more; n_refetch += 1
+        slots = parse(lines)
+    ser.close()
+    return lines, slots, n_refetch
 
 
 def main():
@@ -159,11 +207,13 @@ def main():
     if '--file' in args:
         src = args[args.index('--file') + 1]
         lines = open(src).read().split('\n')
+        slots = parse(lines)
     else:
         port = next((a for a in args if not a.startswith('--')), '/dev/ttyACM0')
         print(f'从 {port} 读出黑匣子……')
-        lines = read_serial(port)
-    slots = parse(lines)
+        lines, slots, nref = read_serial(port)
+        if nref:
+            print(f'   补发 {nref} 次后完整' if all(d.get('complete', True) for d in slots.values()) else '   ⚠ 补发后仍不完整')
     od = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'blackbox')
     os.makedirs(od, exist_ok=True)
     tag = time.strftime('%Y%m%d_%H%M%S')
@@ -181,13 +231,13 @@ def main():
         d = slots[si]
         if d.get('valid') and d['recs'] and '--no-csv' not in args:
             p = os.path.join(od, f'bb_{tag}_slot{si}_boot{d["boot"]}.csv'); write_csv(p, d); print(f'   → {os.path.relpath(p)}')
-        meta[si] = {k: v for k, v in d.items() if k not in ('recs', 'crc')} | dict(n_recs=len(d['recs']))
+        meta[si] = {k: v for k, v in d.items() if k not in ('recs', 'by_idx')} | dict(n_recs=len(d['recs']))
     if '--no-csv' not in args:
         json.dump(meta, open(os.path.join(od, f'bb_{tag}_meta.json'), 'w'), ensure_ascii=False, indent=1)
     if '--json' in args:
         print('JSON ' + json.dumps(dict((si, [r for r in slots[si]['recs']]) for si in slots)))
-    ok = all(d.get('crc_ok', True) for d in slots.values() if d.get('valid'))
-    print('全部校验通过' if ok else '⚠ 有槽校验失败')
+    ok = all(d.get('complete') for d in slots.values() if d.get('valid'))
+    print('全部完整、校验通过' if ok else '⚠ 有槽不完整（记录条数与槽头不符）')
     return 0 if ok else 1
 
 

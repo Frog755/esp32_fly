@@ -40,6 +40,7 @@
 #include "blackbox.h"             /* 机载黑匣子（Stage 28，纯 C） */
 #include "esp_attr.h"
 #include "esp_cache.h"
+#include "esp_random.h"
 
 #if FLIGHT_MOTOR_OUTPUT
 #define FW_NAME "flight_v9 (Stage 28 MOTOR OUTPUT, throttle capped, blackbox)"
@@ -319,7 +320,38 @@ static int web_build_json(char *b, size_t n)
 }
 
 /* ---------------- 黑匣子读出（核 0，只在 DISARMED 时允许） ---------------- */
-static void bb_out_stdout(void *ctx, const char *line) { (void)ctx; fputs(line, stdout); fputc('\n', stdout); }
+/* 读出走 usb_serial_jtag_write_bytes 阻塞写：VFS（printf）层在电脑 50 ms 没取走数据时会静默丢字；
+ * 驱动层只在环形缓冲满时等待，不丢。连续 5 s 写不出去（电脑没在读）就放弃本次读出。 */
+static volatile int s_bb_abort = 0;
+static void usb_write_all(const char *p, size_t n)
+{
+    int fails = 0;
+    while (n && !s_bb_abort) {
+        const int w = usb_serial_jtag_write_bytes(p, n, pdMS_TO_TICKS(200));
+        if (w <= 0) { if (++fails > 25) s_bb_abort = 1; continue; }
+        fails = 0; p += w; n -= (size_t)w;
+    }
+}
+static void bb_out_stdout(void *ctx, const char *line)
+{
+    (void)ctx;
+    usb_write_all(line, strlen(line)); usb_write_all("\n", 1);
+}
+static int bb_begin_dump(void)
+{
+    snap_t s; portENTER_CRITICAL(&s_mux); s = s_snap; portEXIT_CRITICAL(&s_mux);
+    if (s.st != FSM_DISARMED) { printf("CLI bbdump refused: 只能在未解锁（DISARMED）时读出\n"); return 0; }
+    s_bb_pause = 1; s_quiet = 1; s_bb_abort = 0;
+    vTaskDelay(pdMS_TO_TICKS(30));                 /* 等 ctrl 拍和遥测停下 */
+    fflush(stdout);
+    usb_serial_jtag_wait_tx_done(pdMS_TO_TICKS(200));
+    return 1;
+}
+static void bb_end_dump(void)
+{
+    usb_serial_jtag_wait_tx_done(pdMS_TO_TICKS(500));
+    s_quiet = 0; s_bb_pause = 0;
+}
 
 static void bb_info(void)
 {
@@ -333,21 +365,26 @@ static void bb_info(void)
     }
 }
 
+static uint8_t s_bb_tmp[16 * BB_REC_SIZE];
+static char s_bb_line[1400];
+
 static void bb_dump(void)
 {
-    snap_t s; portENTER_CRITICAL(&s_mux); s = s_snap; portEXIT_CRITICAL(&s_mux);
-    if (s.st != FSM_DISARMED) { printf("CLI bbdump refused: 只能在未解锁（DISARMED）时读出\n"); return; }
-    static uint8_t tmp[16 * BB_REC_SIZE];
-    static char line[1400];
-    s_bb_pause = 1; s_quiet = 1;
-    vTaskDelay(pdMS_TO_TICKS(30));                 /* 等 ctrl 拍和遥测停下 */
-    fflush(stdout);
-    printf("BB_BEGIN %u\n", (unsigned)s_bbw.boot);
-    for (int si = 0; si < 2; si++)
-        bb_dump_slot(&s_bb_store, si, &s_bb_store.slot[si] == s_bbw.cur, s_bbw.frozen, bb_out_stdout, NULL, tmp, line);
-    printf("BB_DONE\n");
-    fflush(stdout);
-    s_quiet = 0; s_bb_pause = 0;
+    if (!bb_begin_dump()) return;
+    char hdr[32]; snprintf(hdr, sizeof hdr, "BB_BEGIN %u", (unsigned)s_bbw.boot); bb_out_stdout(NULL, hdr);
+    for (int si = 0; si < 2 && !s_bb_abort; si++)
+        bb_dump_slot(&s_bb_store, si, &s_bb_store.slot[si] == s_bbw.cur, s_bbw.frozen, bb_out_stdout, NULL, s_bb_tmp, s_bb_line);
+    bb_out_stdout(NULL, "BB_DONE");
+    bb_end_dump();
+}
+
+static void bb_get(const char *args)                 /* bbget <槽> <lo> <hi>：补发读出时丢掉的记录 */
+{
+    unsigned si = 9, lo = 0, hi = 0;
+    if (sscanf(args, "%u %u %u", &si, &lo, &hi) != 3 || si > 1 || hi < lo) { printf("CLI bbget usage: bbget <0|1> <lo> <hi>\n"); return; }
+    if (!bb_begin_dump()) return;
+    bb_dump_get(&s_bb_store, (int)si, lo, hi, bb_out_stdout, NULL, s_bb_tmp, s_bb_line);
+    bb_end_dump();
 }
 
 /* ---------------- 串口指令（核 0） ---------------- */
@@ -370,13 +407,14 @@ static void cli_task(void *arg)
                 else if (!strcmp(line, "status")) print_status();
                 else if (!strcmp(line, "hb")) __atomic_add_fetch(&s_link_seq, 1, __ATOMIC_SEQ_CST);   /* 串口心跳（桌面测试用） */
                 else if (!strcmp(line, "bbdump")) bb_dump();
+                else if (!strncmp(line, "bbget ", 6)) bb_get(line + 6);
                 else if (!strcmp(line, "bbinfo")) bb_info();
                 else if (!strcmp(line, "reboot")) {                           /* 软件复位（测黑匣子跨复位保留；只在 DISARMED） */
                     snap_t s; portENTER_CRITICAL(&s_mux); s = s_snap; portEXIT_CRITICAL(&s_mux);
                     if (s.st != FSM_DISARMED) printf("CLI reboot refused: 只能在未解锁（DISARMED）时重启\n");
                     else { printf("CLI reboot\n"); fflush(stdout); vTaskDelay(pdMS_TO_TICKS(50)); esp_restart(); }
                 }
-                else if (line[0]) printf("CLI unknown '%s'（可用：arm / takeoff / land / disarm / status / hb / bbinfo / bbdump / reboot；空格或 k = 立即 disarm）\n", line);
+                else if (line[0]) printf("CLI unknown '%s'（可用：arm / takeoff / land / disarm / status / hb / bbinfo / bbdump / bbget / reboot；空格或 k = 立即 disarm）\n", line);
             } else if (n < (int)sizeof(line) - 1) line[n++] = c;
         }
     }
@@ -430,9 +468,9 @@ void app_main(void)
     printf("BOOT motor_pins_level %d %d %d %d\n", gpio_get_level(16), gpio_get_level(6), gpio_get_level(5), gpio_get_level(15));
     printf("BOOT u_max %.3f\n", FLIGHT_MOTOR_OUTPUT ? (double)FLIGHT_U_MAX : 0.0);
     {   /* 黑匣子：选槽（上一次开机的槽保留），槽头立即回写到 PSRAM */
-        bb_begin(&s_bbw, &s_bb_store, (uint32_t)esp_reset_reason());
+        bb_begin(&s_bbw, &s_bb_store, (uint32_t)esp_reset_reason(), esp_random());
         const int fl = ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_TYPE_DATA;
-        esp_cache_msync(&s_bb_store, 64, fl);
+        esp_cache_msync((uint8_t *)&s_bb_store + BB_GUARD, 64, fl);   /* 存储头（跳过开头 4 KB 时序调校区） */
         esp_cache_msync(&s_bb_store.slot[0], 64, fl); esp_cache_msync(&s_bb_store.slot[1], 64, fl);
         const bb_slot_t *prev = &s_bb_store.slot[(s_bbw.boot & 1) ^ 1];
         const bb_range_t rg = bb_scan(prev);

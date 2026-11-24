@@ -24,6 +24,22 @@ check(s0['state'] == 'RECOVER' and s0['on'] == 1 and abs(s0['vb'] - 4.15) < 1e-9
       and abs(s0['ax_g'] + 0.012) < 1e-9 and s0['per_max_us'] == 1500 and s0['exec_max_us'] == 670, '换算：状态名、电压、指令、比力、时序单位')
 summ = bb_read.summary(1, slots[1], slots[0]['reset_name'])
 check(any('通电' in l for l in summ) and any('意外复位' in l for l in summ), '摘要包含通电段统计与\"上一次开机\"提示')
+# 模拟 USB 丢行 / 坏行：删掉 3 行、改坏 1 行 → 不完整；合并 bbget 补发后完整且与 C 一致
+lines = open(os.path.join(B, 'bb_dump.txt')).read().split('\n')
+bb_idx = [i for i, l in enumerate(lines) if l.startswith('BB ')]
+drop = {bb_idx[1], bb_idx[7], bb_idx[-2]}
+bad = bb_idx[4]
+lossy = [(l[:-6] + 'AAAA==' if i == bad else l) for i, l in enumerate(lines) if i not in drop]
+lossy = [l for l in lossy if not l.startswith('BB_END')] + [lines[bb_idx[-1]][:40]]   # 结尾截断的半行
+sl = bb_read.parse(lossy)
+miss = {si: bb_read.missing_ranges(d) for si, d in sl.items()}
+n_miss = sum(b - a + 1 for v in miss.values() for a, b in v)
+check(not all(d['complete'] for d in sl.values()) and n_miss == 64 and sum(d['bad_lines'] for d in sl.values()) == 2,
+      f'丢 3 行 + 改坏 1 行 + 截断半行：判不完整，缺 {n_miss} 条（4 × 16）、坏行 2（改坏 1 + 截断 1）')
+sl = bb_read.parse(open(os.path.join(B, 'bb_get.txt')).read().split('\n'), sl)
+got2 = [(si, r['idx'], r['t_ms'], r['st'], r['qx'], r['gx'], r['gz'], r['u4'], r['vib']) for si in (0, 1) for r in sl[si]['recs']]
+check(all(d['complete'] for d in sl.values()) and got2 == exp and not any(bb_read.missing_ranges(d) for d in sl.values()),
+      '合并 bbget 补发后完整，逐条与 C 一致')
 inv = bb_read.parse(open(os.path.join(B, 'bb_dump_invalid.txt')).read().split('\n'))
 check(inv[0]['valid'] is False, '无效槽解析为空')
 print('黑匣子 Python 对拍全部通过' if ok_all else '有失败项')

@@ -1,0 +1,49 @@
+等待飞控数据……
+   flight_v9 (Stage 28 dry-run: phone control, blackbox)
+  ✓ 干跑版 Stage 28 固件、电机驱动未编译、电机引脚全低
+   黑匣子 boot 1 slot 1 n 2343 frozen 0
+
+[1] 台上走一遍"通电"流程（干跑版不出力）
+  ✓ 解锁
+   EVT 18418 takeoff TAKEOFF | EVT 24418 land_takeoff_timeout LAND | EVT 25723 landed DISARMED
+  ✓ 起飞超时 → 降落 → 触地
+   等 11 s 冻结……
+   黑匣子 boot 1 slot 1 n 6023 frozen 1
+  ✓ 停转 10 s 后冻结
+
+[2] 读出（bbdump）
+   用时 5.8 s，505 KB 文本
+槽 1：开机号 1（这次开机的复位原因 USB）【当前】【已冻结】  记录 6023 条 / 30.1 s  校验 ✓
+   时间 5.6 ~ 35.7 s（开机后），序号断档 0 处
+   事件：18.37s armed → 18.42s takeoff → 24.42s land_takeoff_timeout → 25.72s landed
+   通电 7.30 s：实际占空比之和 平均 0.000 最大 0.000；电池最低 4.20 V
+   门控 k 中位 1.91，k<0.5 占 0%；振动 中位 0.002 g 最大 0.006 g；比力最大 1.00 g
+   姿态 |roll| 最大 0.6°  |pitch| 最大 2.2°；高度 -0.06 ~ +0.23 m
+   1 kHz 最长周期 1480 μs，最长执行 730 μs；看门狗锁死 否
+  ✓ crc32 / 条数校验通过
+  ✓ 当前槽已冻结、含通电段 7.30 s
+  ✓ 事件序列 armed → takeoff → land_takeoff_timeout → landed
+  ✓ 记录连续无断档（6023 条）
+  ✓ 干跑版：实际输出全程 0
+
+[3] 软件复位后上一槽是否保留
+   BOOT reset_reason 3 | BOOT blackbox boot 1 slot 1 store 3072 KB; prev slot empty boot 0 records 0 (0.0 s)
+  ✗ 开机日志报告上一槽有效
+  ✗ 上一槽（复位前那次开机）读出、crc 通过
+  ✗ 上一槽与复位前读出逐条逐字段一致（6023 条）
+  ✗ 新开机号 1、复位原因 SW
+槽 1：开机号 1（这次开机的复位原因 SW）【当前】  记录 6007 条 / 30.0 s  校验 ✗
+   时间 5.6 ~ 35.7 s（开机后），序号断档 1 处
+   事件：18.37s armed → 18.42s takeoff → 24.42s land_takeoff_timeout → 25.72s landed
+   通电 7.30 s：实际占空比之和 平均 0.000 最大 0.000；电池最低 4.20 V
+   门控 k 中位 1.91，k<0.5 占 0%；振动 中位 0.002 g 最大 0.006 g；比力最大 1.00 g
+   姿态 |roll| 最大 0.6°  |pitch| 最大 2.2°；高度 -0.06 ~ +0.23 m
+   1 kHz 最长周期 1480 μs，最长执行 730 μs；看门狗锁死 否
+   （这是上一次开机的记录，以复位 SW 结束——SW = reboot 指令，USB = 烧录 / USB 总线复位）
+
+[4] 时序（黑匣子开启，30 s）
+   37451 late_gt1100us 2191 exec_max_us 708 ctrl200_max_us 420 spi_fail 0
+   late_gt1500us 1 late_gt2000us 1 late_gt5000us 0 period_max_us 3001
+  ✗ 没有 >2 ms 的控制周期
+
+有失败项
