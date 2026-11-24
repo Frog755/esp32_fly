@@ -52,3 +52,6 @@ code/flight_v9/motor_bench_raw.csv
 code/flight_v9/motor_bench_events.txt
 code/flight_v9/__pycache__/
 code/flight_v9/test/__pycache__/
+
+# flight_v9 Stage 28：黑匣子读出的本地输出（每次飞行的正式结果另存 RL/results/stageNN/）
+code/flight_v9/blackbox/
