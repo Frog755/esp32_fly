@@ -109,13 +109,15 @@ NOISE = {
 }
 
 
-def run(L, scen, noise, N, seed, T=30.0, mount_deg=None, u_max=1.0, soc=1.0):
+def run(L, scen, noise, N, seed, T=30.0, mount_deg=None, u_max=1.0, soc=1.0, plant_tmax=None):
     """u_max：与固件 motor_out_write() 同位置的油门上限（控制器不知道，只在写电机时截断）；soc：开局电量"""
     rng = np.random.default_rng(seed)
     nz = dict(NOISE[noise]);
     if mount_deg is not None:
         nz['mount_deg'] = mount_deg
     p = YaoKunK10Params()
+    if plant_tmax is not None:                                   # 真机推力与控制器模型不一致时的被控对象（控制器仍按 0.27 N）
+        p.thrust_max_per_motor = plant_tmax; p._post()
     mg = None if nz['mgain'] == 0 else rng.uniform(1 - nz['mgain'], 1 + nz['mgain'], (N, 4))
     dyn = VecQuadDynamics(N, p, motor_gain=mg)
     dt = dyn.dt

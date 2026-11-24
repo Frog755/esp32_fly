@@ -1,0 +1,25 @@
+        self.dt_phys = dt_phys
+        self.ctrl_hz = ctrl_hz
+        self.motor_gain = np.ones(4) if motor_gain is None else np.asarray(motor_gain, float)
+        self._post()
+
+    def _post(self):
+        if self.wheelbase:
+            a = self.wheelbase / 2 / math.sqrt(2)
+            self.rotor_pos = np.array([[a, -a, 0.0], [-a, -a, 0.0],
+                                       [-a, a, 0.0], [a, a, 0.0]])
+        self.rotor_dir = np.asarray(self.rotor_dir, float)
+        self.k_f = self.thrust_max_per_motor / self.omega_max ** 2
+
+    @property
+    def hover_throttle(self):
+        return float(math.sqrt(self.mass * G / 4 / self.thrust_max_per_motor))
+
+    @property
+    def thrust_to_weight(self):
+        return 4 * self.thrust_max_per_motor / (self.mass * G)
+
+H1 推力模型正确（悬停≈0.85）     成功 100.0%  坠地  0.0%  最高 中位 0.94 / 最大 1.16 m  悬停峰值指令 0.84  停桨 {'landed': 62, 'impact': 2}
+推力 2×                  成功  21.9%  坠地 78.1%  最高 中位 1.09 / 最大 1.31 m  悬停峰值指令 0.59  停桨 {'landed': 64}
+推力 3.3×                成功   0.0%  坠地  0.0%  最高 中位 3.19 / 最大 3.92 m  悬停峰值指令 nan  停桨 {'landed': 64}
+H2 40%≈悬停              成功   0.0%  坠地  0.0%  最高 中位 337.85 / 最大 344.18 m  悬停峰值指令 nan  停桨 {'land_timeout_kill': 64}
