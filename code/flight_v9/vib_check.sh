@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stage 30 装桨振动检查（电机会真转 40%，飞机离不了地）：参数原样传给 vib_check.py：[串口]  [--no-flash]  [--analyse-file X.txt]
+# Stage 30 装桨振动检查（电机会真转 30%，飞机离不了地）：参数原样传给 vib_check.py：[串口]  [--no-flash]  [--analyse-file X.txt]
 cd "$(dirname "${BASH_SOURCE[0]}")"
 PY=""
 for c in "$HOME"/.espressif/tools/python/*/venv/bin/python python3; do

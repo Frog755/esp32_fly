@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""vib_check.py —— Stage 30 装桨振动检查（电机会真转，油门上限 40%；飞机离不了地）
+"""vib_check.py —— Stage 30 装桨振动检查（电机会真转，油门上限 30%；飞机离不了地）
 
 ★ 前提：4 个桨已装好（方向见 FIRST_FLIGHT.md）、已系留、半径 2 m 内没人没东西；电池充满（≥ 4.10 V）；手机能连热点。
-为什么 40% 不是 50%：仿真单电机最大推力 0.27 N 是估计值、没台架标定过。若真机推力比仿真大一倍，
-  50% 时推力可达重力 ~90%（加上贴地效应可能离地）；40% 时仍 < 60%，留足余量。
+为什么 30%：第 1 次（40%）实测飞机已轻微离地、平移（真机推力远大于仿真模型），40% ≈ 推力等于重力；
+  按推力 ∝ 油门² 粗估，30% ≈ 重力的 55~60%，不会离地。固件需含加计低通（acc_lpf，Stage 30 修复），脚本烧前核对。
 流程：
-  1. 输入「已装桨已系留」→ 核对镜像后烧 build_vib（u_max=0.40）→ 开机核对
+  1. 输入「已装桨已系留」→ 核对镜像后烧 build_vib（u_max=0.30、含 acc_lpf）→ 开机核对
   2. **拔掉 USB（电池别拔）**——电机 EMI 会让插着的 USB 复位，进而让芯片复位
-  3. 手机：按住解锁 → 按住起飞 → 电机 40% 转约 6 s → 自动降落 → 约 1~2 s 后自己停
+  3. 手机：按住解锁 → 按住起飞 → 电机 30% 转约 6 s（应一直贴地）→ 自动降落 → 约 1~2 s 后自己停
   4. 停稳后插回 USB，按回车 → 读出黑匣子 → 分析振动对姿态估计的影响 → 默认烧回干跑版
 判据（飞机贴在地上不动，真实姿态不变，所以"电机转时的姿态估计 − 转之前"就是振动造成的误差）：
   姿态偏差 < 3° 正常；3~8° 需要处理振动后再飞；> 8° 不能飞。另报门控关闭占比、振动、陀螺抖动、偏航漂移。
@@ -22,8 +22,8 @@ import bb_read
 
 args = [a for a in sys.argv[1:] if not a.startswith('--')]
 PORT = args[0] if args and not args[0].endswith('.txt') else '/dev/ttyACM0'
-U_MAX = 0.40
-TAG = 'MOTOR OUTPUT u_max=0.40f'
+U_MAX = 0.30
+TAG = 'MOTOR OUTPUT u_max=0.30f, acc_lpf=10.0f'
 
 
 def yes(prompt):
@@ -178,7 +178,7 @@ def main():
     if '--analyse-file' in sys.argv:
         src = sys.argv[sys.argv.index('--analyse-file') + 1]
         r = analyse(bb_read.parse(open(src).read().split('\n'))); report(r); return
-    print('⚠ 这一步电机会真转（40%），桨是装着的。人离开 1 m 以上，手不要靠近桨。')
+    print(f'⚠ 这一步电机会真转（{U_MAX:.0%}），桨是装着的。人离开 1 m 以上，手不要靠近桨。')
     if input('   确认 4 个桨已装好、已系留、周围 2 m 没人没东西，请输入「已装桨已系留」：').strip() != '已装桨已系留':
         sys.exit('未确认，退出（什么都没做）。')
     if not yes('   电池充满了吗（≥ 4.10 V）？桨的方向核对过吗（左前 / 右后 顺时针，右前 / 左后 逆时针，俯视）？'):
@@ -186,12 +186,12 @@ def main():
     if '--no-flash' not in sys.argv:
         if not glob.glob(PORT):
             sys.exit(f'✗ 找不到串口 {PORT}，请插上 USB。')
-        flash('build_vib', TAG, '振动检查版（油门上限 40%）')
+        flash('build_vib', TAG, f'振动检查版（油门上限 {U_MAX:.0%}、含加计低通）')
     ser, st = open_and_wait_boot()
     print(f'   固件 {st.get("fw", "?")}')
     print(f'   电机驱动 {st.get("motor_output")}  油门上限 {st.get("u_max")}  状态 {st.get("state")}  电池 {st.get("vbatt")} V  黑匣子 {st.get("blackbox")}')
-    if st.get('motor_output') != '1' or abs(float(st.get('u_max') or 0) - U_MAX) > 1e-4 or st.get('state') != 'DISARMED':
-        sys.exit('✗ 板上不是「电机驱动版、油门上限 0.40、未解锁」，停止。')
+    if st.get('motor_output') != '1' or abs(float(st.get('u_max') or 0) - U_MAX) > 1e-4 or st.get('state') != 'DISARMED' or 'acc_lpf' not in st.get('fw', ''):
+        sys.exit(f'✗ 板上不是「电机驱动版、油门上限 {U_MAX:.2f}、未解锁」，停止。')
     try:
         if float(st.get('vbatt', 0)) < 4.0:
             print(f'   ⚠ 电池 {st.get("vbatt")} V 偏低（< 4.0 V），建议先充电。')
@@ -203,7 +203,7 @@ def main():
     print('  1) **拔掉 USB 线**（电池不要拔！拔电池黑匣子就没了）')
     print('  2) 飞机放回系留点、放平，人退到 1 m 外')
     print('  3) 手机连热点、打开 http://192.168.4.1：「按住解锁」→「按住起飞」')
-    print('     电机以 40% 转约 6 秒 → 自动降落 → 再约 1~2 秒自己停；异常随时按「急停」')
+    print(f'     电机以 {U_MAX:.0%} 转约 6 秒 → 自动降落 → 再约 1~2 秒自己停；飞机应一直贴在地上；异常随时按「急停」')
     print('  4) 电机停稳后，**插回 USB**')
     input('做完第 4 步按回车 ')
     print('   等板子出数据……')
@@ -223,7 +223,7 @@ def main():
     r['user_lifted'] = yes('\n   飞机离地了吗（哪怕一侧翘起来）？离地答 y，一直贴在地上答 n')
     r['user_note_ok'] = yes('   电机声音正常、4 个电机转速听起来差不多、没有异响 / 明显抖动吗？')
     if r['user_lifted']:
-        print('   ⚠ 离地了：说明真机推力比仿真大，首飞油门上限要重新定——先把结果发我。')
+        print(f'   ⚠ {U_MAX:.0%} 也离地了：推力比粗估还大——先把结果发我。')
     json.dump(r, open(os.path.join(od, f'vib_{tag}.json'), 'w'), ensure_ascii=False, indent=1)
     print(f'   已保存 blackbox/vib_{tag}.json、原始读出与 CSV')
     if yes('\n烧回干跑版固件（电机驱动不编译，推荐）？'):

@@ -42,13 +42,13 @@
 #include "esp_cache.h"
 #include "esp_random.h"
 
-#if FLIGHT_MOTOR_OUTPUT
-/* 固件名里带油门上限原文（如 "u_max=0.40f"）：烧录脚本在烧之前从镜像里核对，防止烧错上限 */
 #define FV_STR2(x) #x
 #define FV_STR(x) FV_STR2(x)
-#define FW_NAME "flight_v9 (MOTOR OUTPUT u_max=" FV_STR(FLIGHT_U_MAX) ", blackbox)"
+#if FLIGHT_MOTOR_OUTPUT
+/* 固件名里带油门上限原文（如 "u_max=0.40f"）：烧录脚本在烧之前从镜像里核对，防止烧错上限 */
+#define FW_NAME "flight_v9 (MOTOR OUTPUT u_max=" FV_STR(FLIGHT_U_MAX) ", acc_lpf=" FV_STR(FC_ACC_LPF_HZ) ", blackbox)"
 #else
-#define FW_NAME "flight_v9 (dry-run: phone control, blackbox)"
+#define FW_NAME "flight_v9 (dry-run: phone control, acc_lpf=" FV_STR(FC_ACC_LPF_HZ) ", blackbox)"
 #endif
 #define CTRL_STALL_MS 60          /* 遥测任务看门狗：控制循环停摆超过这么久 → 强制停转并锁死（仅电机驱动版） */
 #define R2D 57.29578f
