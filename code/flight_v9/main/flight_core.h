@@ -11,15 +11,20 @@
 #include <string.h>
 #include <math.h>
 #include "mahony_gated.h"
+#include "acc_lpf.h"
 #include "alt_est.h"
 #include "recovery_expert9.h"
 #include "flight_fsm.h"
 
 #define FC_BARO_STALE_S  0.2f
 #define FC_LINK_TIMEOUT  0.6f     /* s：遥控心跳超过这么久没来 → 链路丢失（手机每 0.1 s 发一次） */
+#ifndef FC_ACC_LPF_HZ
+#define FC_ACC_LPF_HZ    10.0f    /* Hz：喂给门控 Mahony 的加计低通（Stage 30 真机振动回放：姿态误差 7.5° → 0.8°，见 acc_lpf.h） */
+#endif
 
 typedef struct {
     mahony_gated_t mg;
+    acc_lpf_t alp;                /* 加计低通（只给 Mahony；状态机 / 竖直滤波用原始加计） */
     alt_est_t alt;
     recovery9_state_t rc;
     fsm_t fsm;
@@ -38,6 +43,7 @@ static inline void fc_init(fc_t *c, const float a0_body[3])
 {
     memset(c, 0, sizeof(*c));
     mahony_gated_init_from_accel(&c->mg, a0_body);
+    acc_lpf_init(&c->alp, a0_body);
     alt_reset(&c->alt, 0.0f);
     recovery9_reset(&c->rc);
     fsm_init(&c->fsm);
@@ -64,7 +70,8 @@ static inline int fc_step(fc_t *c, const float a[3], const float g[3], float dt,
 {
     c->tick++;
     if (!isnan(vbatt)) c->vbatt = vbatt;
-    c->k = mahony_gated_update(&c->mg, g, a, dt);
+    if (FC_ACC_LPF_HZ > 0.0f) { acc_lpf_step(&c->alp, a, dt, FC_ACC_LPF_HZ); c->k = mahony_gated_update(&c->mg, g, c->alp.y, dt); }
+    else c->k = mahony_gated_update(&c->mg, g, a, dt);
     c->anorm_g = sqrtf(a[0] * a[0] + a[1] * a[1] + a[2] * a[2]) / MAHONY_G;
     c->w_norm = sqrtf(g[0] * g[0] + g[1] * g[1] + g[2] * g[2]);
     alt_predict(&c->alt, alt_up_accel(c->mg.q, a), dt);

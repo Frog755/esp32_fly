@@ -220,7 +220,7 @@ def main():
     r = analyse(slots)
     print('\n================ 振动检查结果 ================')
     report(r)
-    r['user_lifted'] = not yes('\n   飞机全程贴在地上没有离地吗？')
+    r['user_lifted'] = yes('\n   飞机离地了吗（哪怕一侧翘起来）？离地答 y，一直贴在地上答 n')
     r['user_note_ok'] = yes('   电机声音正常、4 个电机转速听起来差不多、没有异响 / 明显抖动吗？')
     if r['user_lifted']:
         print('   ⚠ 离地了：说明真机推力比仿真大，首飞油门上限要重新定——先把结果发我。')
