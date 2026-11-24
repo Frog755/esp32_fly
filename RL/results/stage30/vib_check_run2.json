@@ -1,0 +1,81 @@
+{
+ "found": true,
+ "slot": 0,
+ "boot": 56518,
+ "reset_name": "USB",
+ "complete": true,
+ "on_s": 8.32,
+ "events": [
+  "23.49s armed",
+  "25.60s takeoff",
+  "31.60s land_takeoff_timeout",
+  "33.92s landed"
+ ],
+ "motor_fw": true,
+ "killed": false,
+ "out_mean": 1.2004,
+ "out_max": 1.2004,
+ "out_cap": 1.2,
+ "tilt_err_max": 0.21802665029561016,
+ "tilt_err_p95": 0.13941590591485184,
+ "tilt_err_mean": 0.06219682361985788,
+ "roll_dev_mean": 0.035479327739566184,
+ "pitch_dev_mean": 0.013502124042288875,
+ "roll_std_on": 0.027623904932087915,
+ "pitch_std_on": 0.05456188661848256,
+ "yaw_drift_deg": 1.9438906016976318,
+ "k_med_on": 1.76,
+ "k_lt05_on": 0.0,
+ "k_med_pre": 1.8,
+ "vib_med_on": 0.464,
+ "vib_p95_on": 0.605,
+ "vib_med_pre": 0.002,
+ "anorm_max_on": 1.807471438225235,
+ "anorm_med_on": 1.0164792144518489,
+ "gyro_std_on": [
+  3.3569127483971535,
+  5.012870638447453,
+  2.232205895136921
+ ],
+ "gyro_std_pre": [
+  0.11604928909734864,
+  0.11537330713817646,
+  0.09562295749452639
+ ],
+ "z_pre": 0.523655,
+ "z_max_on": 0.36,
+ "vb_pre": 4.1340625,
+ "vb_min_on": 3.341,
+ "per_max_us": 1500,
+ "exec_max_us": 820,
+ "u_cmd_mean": [
+  0.9414953725961539,
+  0.9386698918269231,
+  0.9277810697115385,
+  0.9315165865384616
+ ],
+ "post_out_zero": true,
+ "seq_ok": true,
+ "checks": [
+  [
+   "流程：armed → takeoff → land_takeoff_timeout → landed",
+   true
+  ],
+  [
+   "电机驱动版、实际输出不超过 4×30%（之和 ≤ 1.20，实测最大 1.200）",
+   true
+  ],
+  [
+   "停转后输出保持 0、看门狗未触发",
+   true
+  ],
+  [
+   "1 kHz 最长周期 1500 μs < 2 ms",
+   true
+  ]
+ ],
+ "attitude_verdict": "正常",
+ "passed": true,
+ "user_lifted": false,
+ "user_note_ok": true
+}

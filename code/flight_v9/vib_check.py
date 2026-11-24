@@ -170,7 +170,7 @@ def report(r):
     print(f'   【其他】实际占空比之和 平均 {r["out_mean"]:.3f}（上限 {r["out_cap"]:.2f}）；控制器指令 M1~M4 平均 '
           + ' / '.join(f'{u:.2f}' for u in r['u_cmd_mean']) + f'；电池 {r["vb_pre"]:.2f} → 最低 {r["vb_min_on"]:.2f} V；'
           f'高度估计 {r["z_pre"]:+.2f} → 最高 {r["z_max_on"]:+.2f} m（桨下气流会影响气压计，仅供参考）')
-    print('\n' + ('✓ 振动检查通过，可以进入系留首飞' if r['passed'] else '✗ 有项目没通过，先把结果发给我'))
+    print('\n' + ('✓ 振动检查通过（振动不影响姿态估计）。注意：首飞前仍需修正推力模型，现固件装桨不能真飞' if r['passed'] else '✗ 有项目没通过，先把结果发给我'))
 
 
 def main():
