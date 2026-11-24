@@ -98,7 +98,10 @@ class Board:
             elif p[0] == 'STATUS' and len(p) >= 2:
                 self.status[p[1]] = ' '.join(p[2:])
             elif p[0] == 'BOOT' and len(p) >= 3 and p[1] == 'reset_reason':
-                self.note('⚠ 板子重新开机，复位原因 ' + p[2])
+                if self.last_t is None:             # 烧录后 / 打开串口后第一次开机（esptool 硬复位 = 11 ESP_RST_USB），属预期
+                    log_event(f'开机（烧录后的正常重启），复位原因 {p[2]}')
+                else:
+                    self.note('⚠ 板子重新开机，复位原因 ' + p[2])
             elif any(k in line for k in ('FATAL', 'Guru', 'abort', 'Backtrace', 'panic')):
                 self.note('⚠ 板子输出错误信息：' + line[:160])
             else:

@@ -1,0 +1,138 @@
+{
+ "port": "/dev/ttyACM0",
+ "time": "2026-11-24 20:07:20",
+ "u_max": 0.06,
+ "steps": [
+  {
+   "step": "A 起飞超时→自动降落→触地停桨",
+   "ok": true,
+   "why": [],
+   "n_rows": 796,
+   "n_on": 365,
+   "events": [
+    "armed",
+    "takeoff",
+    "land_takeoff_timeout",
+    "landed"
+   ],
+   "on_s": 7.287,
+   "out_mean": 0.239,
+   "out_max": 0.239,
+   "on_states": [
+    "LAND",
+    "TAKEOFF"
+   ],
+   "k_on": 1.0603561643835617,
+   "roll_std_on": 0.12745940449249826,
+   "pitch_std_on": 0.22652017681607337,
+   "vb_min_on": 4.03,
+   "t_on_ms": 37463.0,
+   "t_last_on_ms": 44750.0,
+   "zero_after": true,
+   "inconsistent_rows": 0,
+   "k_off": 1.9474031007751937,
+   "roll_std_off": 0.056701862896505785,
+   "pitch_std_off": 0.04395424031731732,
+   "vb_off": 4.159651162790698,
+   "stop_evt": "landed",
+   "stop_lag_ms": -9.0,
+   "user_all4": true,
+   "user_stopped": true
+  },
+  {
+   "step": "B 急停",
+   "ok": true,
+   "why": [],
+   "n_rows": 576,
+   "n_on": 180,
+   "events": [
+    "armed",
+    "takeoff",
+    "disarm_cmd"
+   ],
+   "on_s": 3.58,
+   "out_mean": 0.239,
+   "out_max": 0.239,
+   "on_states": [
+    "TAKEOFF"
+   ],
+   "k_on": 1.0825555555555555,
+   "roll_std_on": 0.062249497989943656,
+   "pitch_std_on": 0.3245219656245776,
+   "vb_min_on": 4.03,
+   "t_on_ms": 67443.0,
+   "t_last_on_ms": 71023.0,
+   "zero_after": true,
+   "inconsistent_rows": 0,
+   "k_off": 1.9503030303030302,
+   "roll_std_off": 0.10019494313554812,
+   "pitch_std_off": 0.10392879175540919,
+   "vb_off": 4.15,
+   "stop_evt": "disarm_cmd",
+   "stop_lag_ms": -11.0,
+   "user_stopped": true
+  },
+  {
+   "step": "C 链路丢失",
+   "ok": true,
+   "why": [],
+   "n_rows": 494,
+   "n_on": 198,
+   "events": [
+    "armed",
+    "takeoff",
+    "land_link_lost",
+    "landed"
+   ],
+   "on_s": 3.94,
+   "out_mean": 0.239,
+   "out_max": 0.239,
+   "on_states": [
+    "LAND",
+    "TAKEOFF"
+   ],
+   "k_on": 1.022171717171717,
+   "roll_std_on": 0.1836745857034204,
+   "pitch_std_on": 0.5470452394740505,
+   "vb_min_on": 4.03,
+   "t_on_ms": 98623.0,
+   "t_last_on_ms": 102563.0,
+   "zero_after": true,
+   "inconsistent_rows": 0,
+   "k_off": 1.9542937853107345,
+   "roll_std_off": 0.0,
+   "pitch_std_off": 0.0,
+   "vb_off": 4.15,
+   "stop_evt": "landed",
+   "stop_lag_ms": -11.0,
+   "land_cause": "land_link_lost",
+   "link_to_stop_s": 1.934,
+   "user_stopped": true
+  }
+ ],
+ "passed": 3,
+ "total": 3,
+ "status_end": {
+  "fw": "flight_v9 (Stage 27 MOTOR OUTPUT, throttle capped)",
+  "motor_output": "1",
+  "u_max": "0.060",
+  "motor_killed": "0",
+  "motor_pins_level": "0 0 0 0",
+  "state": "DISARMED",
+  "vbatt": "4.152",
+  "calib_valid": "1",
+  "level_trim": "1 1.584 0.510",
+  "gyro_bias_dps": "3.322 -0.764 -0.294",
+  "loops": "108461 late_gt1100us 6254 exec_max_us 674 ctrl200_max_us 530 spi_fail 0",
+  "alt": "z 0.483 vz -0.099 acc_bias 0.062 z_target 0.488 thrust_frac 1.025",
+  "mission": "hold_s 5.0 takeoff_h 0.80 land_v 0.35",
+  "period": "late_gt1500us 35 late_gt2000us 0 late_gt5000us 0 period_max_us 1504",
+  "link_ok": "0",
+  "wifi": "on ssid YK-FLY-DC55 phones 0 websockets 0 hb_n 758 gap_max_ms 402",
+  "mapping": "u0->M1(右前,GPIO6) u1->M2(右后,GPIO5) u2->M3(左后,GPIO15) u3->M4(左前,GPIO16)"
+ },
+ "reset_events": [
+  "⚠ 板子重新开机，复位原因 11"
+ ],
+ "restored_dryrun": true
+}

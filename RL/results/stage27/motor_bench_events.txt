@@ -1,0 +1,123 @@
+20:05:03 flash build_mc exit 0
+20:05:03 I (606) esp_psram: SPI SRAM memory test OK
+20:05:03 I (615) cpu_start: Pro cpu start user code
+20:05:03 I (615) cpu_start: cpu freq: 240000000 Hz
+20:05:03 I (616) app_init: Application information:
+20:05:03 I (616) app_init: Project name:     flight_v9
+20:05:03 I (616) app_init: App version:      stage19-v8-vs-v9-8-ged636f4-dir
+20:05:03 I (616) app_init: Compile time:     Nov 24 2026 19:48:48
+20:05:03 I (616) app_init: ELF file SHA256:  fba3ddcde...
+20:05:03 I (616) app_init: ESP-IDF:          v6.1
+20:05:03 I (617) efuse_init: Min chip rev:     v0.0
+20:05:03 I (617) efuse_init: Max chip rev:     v0.99
+20:05:03 I (617) efuse_init: Chip rev:         v0.2
+20:05:03 I (617) heap_init: Initializing. RAM available for dynamic allocation:
+20:05:03 I (617) heap_init: At 3FCA5A40 len 00043CD0 (271 KiB): RAM
+20:05:03 I (617) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM
+20:05:03 I (617) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM
+20:05:03 I (618) heap_init: At 600FE000 len 00001FE8 (7 KiB): RTCRAM
+20:05:03 I (618) esp_psram: Adding pool of 8192K of PSRAM memory to heap allocator
+20:05:03 I (619) spi_flash: detected chip: boya
+20:05:03 I (619) spi_flash: flash io: qio
+20:05:03 I (619) sleep_gpio: Configure to isolate all GPIO pins in sleep state
+20:05:03 I (620) sleep_gpio: Enable automatic switching of GPIO sleep configuration
+20:05:03 I (620) main_task: Started on CPU0
+20:05:03 I (620) esp_psram: Reserving pool of 32K of internal memory for DMA/internal allocations
+20:05:03 I (621) main_task: Calling app_main()
+20:05:06 BOOT_BEGIN
+20:05:06 BOOT fw flight_v9 (Stage 27 MOTOR OUTPUT, throttle capped)
+20:05:06 BOOT motor_output 1
+20:05:06 ⚠ 板子重新开机，复位原因 11
+20:05:06 BOOT calib_valid 1
+20:05:06 BOOT motor_pins_level 0 0 0 0
+20:05:06 BOOT u_max 0.060
+20:05:06 BOOT vbatt_adc unit=1 ch=1 cali=1
+20:05:06 BOOT vbatt_v 4.151
+20:05:06 BOOT i2c_devices 1 0x76
+20:05:06 BOOT bmp_chip_id 0x58
+20:05:07 BOOT baro_p0_pa 99925.8
+20:05:07 BOOT imu_who_am_i 0x70
+20:05:07 BOOT imu_cfg_readback 02 18 18 02 10 OK
+20:05:07 BOOT gyro_calib 开始：请保持飞机静止 2 秒
+20:05:09 BOOT gyro_calib attempt 1 std_max_dps 0.099
+20:05:09 BOOT gyro_bias_dps 3.322 -0.764 -0.294
+20:05:09 BOOT acc_body_g 0.0100 -0.0065 1.0036
+20:05:09 W (6027) ledc: GPIO 6 is not usable, maybe conflict with others
+20:05:09 W (6028) ledc: GPIO 5 is not usable, maybe conflict with others
+20:05:09 W (6029) ledc: GPIO 15 is not usable, maybe conflict with others
+20:05:09 W (6030) ledc: GPIO 16 is not usable, maybe conflict with others
+20:05:09 I (6041) pp: pp rom version: e7ae62f
+20:05:09 I (6042) net80211: net80211 rom version: e7ae62f
+20:05:09 I (6044) wifi:wifi driver task: 3fceea58, prio:23, stack:6656, core=0
+20:05:09 I (6050) wifi:wifi firmware version: e12a754
+20:05:09 I (6051) wifi:wifi certification version: v7.0
+20:05:09 I (6051) wifi:config NVS flash: enabled
+20:05:09 I (6052) wifi:config nano formatting: disabled
+20:05:09 I (6052) wifi:Init data frame dynamic rx buffer num: 32
+20:05:09 I (6053) wifi:Init static rx mgmt buffer num: 5
+20:05:09 I (6053) wifi:Init management short buffer num: 32
+20:05:09 I (6054) wifi:Init dynamic tx buffer num: 32
+20:05:09 I (6055) wifi:Init static tx FG buffer num: 2
+20:05:09 I (6055) wifi:Init static rx buffer size: 1600
+20:05:09 I (6056) wifi:Init static rx buffer num: 10
+20:05:09 I (6056) wifi:Init dynamic rx buffer num: 32
+20:05:09 I (6057) wifi_init: rx ba win: 6
+20:05:09 I (6058) wifi_init: accept mbox: 6
+20:05:09 I (6058) wifi_init: tcpip mbox: 32
+20:05:09 I (6059) wifi_init: udp mbox: 6
+20:05:09 I (6059) wifi_init: tcp mbox: 6
+20:05:09 I (6059) wifi_init: tcp tx win: 5760
+20:05:09 I (6060) wifi_init: tcp rx win: 5760
+20:05:09 I (6060) wifi_init: tcp mss: 1440
+20:05:09 I (6060) wifi_init: WiFi IRAM OP enabled
+20:05:09 I (6061) wifi_init: WiFi RX IRAM OP enabled
+20:05:09 I (6065) phy_init: phy_version 712,87e8c20e,Apr 13 2026,18:51:10
+20:05:09 I (6102) phy_init: Saving new calibration data due to checksum failure or outdated calibration data, mode(0)
+20:05:09 I (6151) wifi:mode : softAP (a0:f2:62:e6:dc:55)
+20:05:09 I (6154) wifi:Total power save buffer number: 16
+20:05:09 I (6155) wifi:Init max length of beacon: 752/752
+20:05:09 I (6156) wifi:Init max length of beacon: 752/752
+20:05:09 I (6157) esp_netif_lwip: DHCP server started on interface WIFI_AP_DEF with IP: 192.168.4.1
+20:05:09 I (6159) wifi:Set ps type: 0, coexist: 0
+20:05:09 BOOT wifi_ap ssid YK-FLY-DC55 pass ykfly2026 url http://192.168.4.1/
+20:05:10 STATUS_END
+20:05:10 FLT_READY
+20:05:10 I (6734) main_task: Returned from app_main()
+20:05:10 STATUS_END
+20:05:10 STATUS_END
+20:05:29 F 8463 0 0 -0.4 -0.6 0.0 -0.0 0.171 0.129 4.16 1.91 0.706 0.712 0.716 0.7flight_v9 (Stage 27 MOTOR OUTPUT, throttle capped)
+20:05:29 STATUS_END
+20:05:35 F 27383 0 0 -0.2 -0.5 0.2 0.1 0.268 0.124F 31563 0 0 -0.4 -0.6 0.3 0.1 0.006 -0.009 4.16 1.97 0.757 0.763 0.767 0.761 0.000 0.006 1.01
+20:05:38 WEB cmd arm
+20:05:38 EVT 35044 armed ARMED
+20:05:41 WEB cmd takeoff
+20:05:41 EVT 37454 takeoff TAKEOFF
+20:05:47 EVT 43454 land_takeoff_timeout LAND
+20:05:48 EVT 44759 landed DISARMED
+20:05:59 F 47503 0 0 -0.6 -0.8 0.1 -STATUS fw flight_v9 (Stage 27 MOTOR OUTPUT, throttle capped)
+20:05:59 STATUS_END
+20:06:06 F 57503 0 0 -0.3 -0.4 0.2 0.1 0.384 0.135 4.15 1.95 0.686 0.691 0.694 0.6F 62250 0 0 -0.2 -0.3 0.3 0.2 0.507 0.011 4.15 1.94 0.734 0.738 0.739 0.736 0.000 0.507 0.94
+20:06:08 WEB cmd arm
+20:06:08 EVT 64514 armed ARMED
+20:06:11 WEB cmd takeoff
+20:06:11 EVT 67424 takeoff TAKEOFF
+20:06:14 WEB cmd disarm
+20:06:14 EVT 71034 disarm_cmd DISARMED
+20:06:15 WEB cmd disarm
+20:06:15 WEB cmd disarm
+20:06:27 F 73783 0 0STATUS fw flight_v9 (Stage 27 MOTOR OUTPUT, throttle capped)
+20:06:27 STATUS_END
+20:06:39 F 85283 0 0 -0.7 -0.9 0.5 -0.1 0.414 -0.070 4.15 1.99 0.783 0.792 0.799 0.790 0.000 0.F 95403 0 0 -0.7 -0.9 0.7 0.1 0.362 -0.128 4.15 1.95 0.803 0.811 0.818 0.809 0.000 0.363 1.14
+20:06:41 WEB cmd arm
+20:06:41 EVT 97274 armed ARMED
+20:06:42 WEB cmd takeoff
+20:06:42 EVT 98619 takeoff TAKEOFF
+20:06:43 I (100660) wifi:station: 46:da:14:c9:93:2a leave, AID = 1, reason = 3, bss_flags is 756835, bss:0x3fcc3ff0
+20:06:43 I (100662) wifi:new:<6,0>, old:<6,1>, ap:<6,1>, sta:<255,255>, prof:6, snd_ch_cfg:0x0
+20:06:43 I (100663) wifi:<ba-del>idx:2, tid:0
+20:06:43 I (100664) wifi:new:<6,1>, old:<6,0>, ap:<6,1>, sta:<255,255>, prof:6, snd_ch_cfg:0x0
+20:06:43 WEB phone_disconnected n=0
+20:06:44 EVT 100629 land_link_lost LAND
+20:06:46 EVT 102574 landed DISARMED
+20:06:58 STATUS_END
+20:07:20 flash build exit 0

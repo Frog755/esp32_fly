@@ -10,7 +10,7 @@
 - 控制器是**手写规则控制器 v9**（bang-bang 翻转 + PD 悬停，"训练" = 物理分析 + 512 通道仿真扫参）。**不是 RL、不是 MPC**——RL 路线已被项目自身否定（见 `note.md`、`RL/legacy/`），不要再提议用 RL / PPO 训练。
 - 链路：Python 仿真（`RL/env/vec_expert9_env.py`）→ 纯 C（`code/connection_test/main/recovery_expert9.h` + `mahony_gated.h`）→ 正式飞控固件 `code/flight_v9/`。
 - 现状：板上默认是**干跑版**（电机驱动未编译进固件，电机不会转）；手机无线控制已完成并经用户手机实测；
-  电机驱动版 `build_mc`（油门上限 6%）+ 拆桨台架脚本 `motor_bench.sh` 已备好、**等用户运行**；**电机从未由本飞控驱动、从未起飞**。
+  电机驱动版 `build_mc`（油门上限 6%）拆桨台架 3/3 通过（Stage 27，11-24，**本飞控第一次真转电机**）；**从未装桨、从未起飞**。
 
 ## 2. 安全规则（最重要）
 
