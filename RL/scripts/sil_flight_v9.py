@@ -109,7 +109,8 @@ NOISE = {
 }
 
 
-def run(L, scen, noise, N, seed, T=30.0, mount_deg=None):
+def run(L, scen, noise, N, seed, T=30.0, mount_deg=None, u_max=1.0, soc=1.0):
+    """u_max：与固件 motor_out_write() 同位置的油门上限（控制器不知道，只在写电机时截断）；soc：开局电量"""
     rng = np.random.default_rng(seed)
     nz = dict(NOISE[noise]);
     if mount_deg is not None:
@@ -131,7 +132,7 @@ def run(L, scen, noise, N, seed, T=30.0, mount_deg=None):
     else:  # takeoff
         quat = np.tile([1.0, 0, 0, 0], (N, 1)); omega = np.zeros((N, 3)); vel = np.zeros((N, 3))
         pos = np.column_stack([np.zeros(N), np.zeros(N), np.full(N, -0.08 * G / 800.0)])   # 静置在地面（弹簧压缩量）
-    dyn.set_state(pos, vel, quat, omega, soc=1.0)
+    dyn.set_state(pos, vel, quat, omega, soc=soc)
     # ---------------- 传感器参数 ----------------
     gb = rng.normal(0, nz['g_bias'], (N, 3)); ab = rng.normal(0, nz['a_bias'], (N, 3))
     mrv = rng.normal(size=(N, 3)); mrv[:, 2] = 0; mrv /= np.linalg.norm(mrv, axis=1, keepdims=True) + 1e-12
@@ -181,6 +182,7 @@ def run(L, scen, noise, N, seed, T=30.0, mount_deg=None):
     zmin = np.full(N, np.inf); vxy_hold_max = np.zeros(N); xy_land = np.full((N, 2), np.nan); ztrue_hold = [[] for _ in range(N)]
     prev_st = np.full(N, 1 if scen != 'takeoff' else 0); airborne = np.zeros(N, bool)
     estz_err = []
+    zmax = np.full(N, -np.inf); sat_n = np.zeros(N); hold_n = np.zeros(N); umax_hold = np.zeros(N); vb_min = np.full(N, np.inf)
     for k in range(K):
         t = k * dt
         if scen == 'takeoff':
@@ -188,7 +190,7 @@ def run(L, scen, noise, N, seed, T=30.0, mount_deg=None):
                 L.sil_cmd(N, np.full(N, CMD['arm'], np.int32))
             if k == 500:
                 L.sil_cmd(N, np.full(N, CMD['takeoff'], np.int32))
-        dyn.step(u.astype(np.float64))
+        dyn.step(np.minimum(u, u_max).astype(np.float64))
         # 地面：弹簧阻尼 + 摩擦
         pen = -dyn.pos[:, 2]; m = pen > 0
         if m.any():
@@ -217,6 +219,11 @@ def run(L, scen, noise, N, seed, T=30.0, mount_deg=None):
             t_off[off] = t; ev_off[off] = ev[off]; z_off[off] = dyn.pos[off, 2]; xy_land[off] = dyn.pos[off, :2]
         fl = on | (~np.isnan(t_on) & np.isnan(t_off))
         zmin = np.where(fl, np.minimum(zmin, dyn.pos[:, 2]), zmin)
+        zmax = np.where(fl, np.maximum(zmax, dyn.pos[:, 2]), zmax)
+        vb_min = np.where(fl, np.minimum(vb_min, dyn.v_batt), vb_min)
+        hs = (st == 4) | (st == 2)
+        hold_n += hs; sat_n += hs & (u.max(axis=1) >= u_max - 1e-6)
+        umax_hold = np.where(st == 4, np.maximum(umax_hold, u.max(axis=1)), umax_hold)
         hold = st == 4
         vxy_hold_max = np.where(hold, np.maximum(vxy_hold_max, np.linalg.norm(dyn.vel[:, :2], axis=1)), vxy_hold_max)
         if k % 50 == 0 and hold.any():
@@ -241,7 +248,11 @@ def run(L, scen, noise, N, seed, T=30.0, mount_deg=None):
     ev_hist = {}
     for e in ev_off[~np.isnan(t_off)]:
         ev_hist[EV[e]] = ev_hist.get(EV[e], 0) + 1
-    res = dict(scenario=scen, noise=noise, mount_deg=nz['mount_deg'], N=N, seed=seed,
+    res = dict(scenario=scen, noise=noise, mount_deg=nz['mount_deg'], N=N, seed=seed, u_max=float(u_max), soc=float(soc),
+               zmax_med=pct(np.where(np.isfinite(zmax), zmax, np.nan), 50), zmax_p90=pct(np.where(np.isfinite(zmax), zmax, np.nan), 90),
+               zmax_max=float(np.nanmax(np.where(np.isfinite(zmax), zmax, np.nan))) if np.isfinite(zmax).any() else float('nan'),
+               sat_frac_med=pct(sat_n / np.maximum(hold_n, 1), 50), sat_frac_p90=pct(sat_n / np.maximum(hold_n, 1), 90),
+               u_hold_peak_med=pct(np.where(umax_hold > 0, umax_hold, np.nan), 50), vb_min_med=pct(np.where(np.isfinite(vb_min), vb_min, np.nan), 50),
                ok_rate=float(ok.mean()), hold_reached=float((~np.isnan(t_hold)).mean()),
                crash_rate=float(crash.mean()), early_ground_rate=float(early_ground.mean()),
                air_kill_rate=float(air_kill.mean()), never_off_rate=float(never_off.mean()), never_on_rate=float(never_on.mean()),

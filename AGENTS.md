@@ -45,6 +45,7 @@ code/flight_v9/      ★ 正式飞控（ESP-IDF v6.1）——见 code/flight_v9/
   test/                主机单测 host_test.c（62 项）+ 网页脚本测试 page_test.js
   dryrun.sh / level_trim.sh   用户自己运行的检查 / 标定脚本
   motor_bench.sh       Stage 27 拆桨电机台架（用户运行：烧 build_mc → 3 步台架 → 烧回干跑版）
+  FIRST_FLIGHT.md      Stage 29 首飞方案：油门上限 0.95 的依据、检查清单、飞行步骤
   main/blackbox.h      Stage 28 机载黑匣子（PSRAM noinit，复位保留、断电丢失）；bb_read.sh 读出，bb_selftest.py 上板自检（干跑版）
 code/sensor_test/    只读传感器固件 + 六面标定 calib.sh + 姿态检查 attitude.sh（imu_calib.h 在这里）
 code/bench_v9/       上板一致性与耗时测试固件

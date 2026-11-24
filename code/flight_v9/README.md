@@ -5,6 +5,8 @@
 > **电机驱动版**（`build_mc/`，Stage 27）：`-DFLIGHT_MOTOR_OUTPUT=1 -DFLIGHT_U_MAX=0.06`，油门上限必须显式指定；手机网页顶部红条显示「电机会真转（油门上限 6%）」。
 > 控制循环 60 ms 不前进 → 看门狗把电机强制停转并锁死（重启恢复）。只通过 `motor_bench.sh` 烧录（要求先拆桨）。
 
+> 首飞方案、油门上限依据与检查清单：[FIRST_FLIGHT.md](FIRST_FLIGHT.md)
+
 ## 飞行流程
 
 ```
