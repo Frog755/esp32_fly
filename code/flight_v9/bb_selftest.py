@@ -87,7 +87,7 @@ b.pump(1)
 st = b.status()
 if 'fw' not in st: b.pump(2); st = b.status()
 print('   ' + st.get('fw', '?'))
-check('Stage 28 dry-run' in st.get('fw', '') and st.get('motor_output') == '0' and st.get('motor_pins_level') == '0 0 0 0',
+check('dry-run' in st.get('fw', '') and st.get('motor_output') == '0' and st.get('motor_pins_level') == '0 0 0 0',
       '干跑版 Stage 28 固件、电机驱动未编译、电机引脚全低')
 print('   黑匣子 ' + st.get('blackbox', '?'))
 

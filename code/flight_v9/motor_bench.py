@@ -353,7 +353,7 @@ def main():
     if not NO_FLASH:
         if not glob.glob(PORT):
             sys.exit(f'✗ 找不到串口 {PORT}，请插上 USB。')
-        flash('build_mc', 'Stage 27 MOTOR OUTPUT', '电机驱动版')
+        flash('build_mc', 'MOTOR OUTPUT u_max=0.06f', '电机驱动版（6%）')
     b = Board(); b_global = b
     wait_boot(b, expect_motor=True)
     results, restored = [], False
@@ -382,7 +382,7 @@ def main():
     except Exception:
         pass
     if yes('\n烧回干跑版固件（电机驱动不编译，推荐）？'):
-        flash('build', 'Stage 27 dry-run', '干跑版')
+        flash('build', 'dry-run: phone control', '干跑版')
         restored = True
     save(results, st_end, restored)
     print('已保存 motor_bench.json、motor_bench_raw.csv、motor_bench_events.txt。把上面的结果或 json 发给我就行。')
