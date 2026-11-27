@@ -1,0 +1,166 @@
+{
+ "found": true,
+ "slot": 1,
+ "boot": 53801,
+ "reset_name": "USB",
+ "complete": true,
+ "on_s": 7.305,
+ "events": [
+  "51.97s armed",
+  "55.66s takeoff",
+  "61.66s land_takeoff_timeout",
+  "62.97s landed"
+ ],
+ "motor_fw": true,
+ "killed": false,
+ "out_mean": 1.2004,
+ "out_max": 1.2004,
+ "out_cap": 1.2,
+ "tilt_err_max": 1.125932448463836,
+ "tilt_err_p95": 0.9435400749670378,
+ "tilt_err_mean": 0.5293741808097365,
+ "roll_dev_mean": -0.31271466090479166,
+ "pitch_dev_mean": -0.32408810316501674,
+ "roll_std_on": 0.2568542944768127,
+ "pitch_std_on": 0.2911308849062326,
+ "yaw_drift_deg": 0.800685900069567,
+ "k_med_on": 1.91,
+ "k_lt05_on": 0.0,
+ "k_med_pre": 1.91,
+ "vib_med_on": 0.488,
+ "vib_p95_on": 0.608,
+ "vib_med_pre": 0.002,
+ "anorm_max_on": 1.7305623363519733,
+ "anorm_med_on": 1.035259387786462,
+ "gyro_std_on": [
+  3.71046372378286,
+  6.377876586114997,
+  1.7062038134148714
+ ],
+ "gyro_std_pre": [
+  0.11590513362228612,
+  0.11252110913068712,
+  0.0968216788741034
+ ],
+ "z_pre": 0.33422,
+ "z_max_on": 0.477,
+ "vb_pre": 4.208095,
+ "vb_min_on": 3.41,
+ "per_max_us": 1500,
+ "exec_max_us": 840,
+ "u_cmd_mean": [
+  0.9136015742642026,
+  0.9336518138261465,
+  0.9431147843942506,
+  0.9262619438740589
+ ],
+ "post_out_zero": true,
+ "seq_ok": true,
+ "checks": [
+  [
+   "流程：armed → takeoff → land_takeoff_timeout → landed",
+   true
+  ],
+  [
+   "电机驱动版、实际输出不超过 4×30%（之和 ≤ 1.20，实测最大 1.200）",
+   true
+  ],
+  [
+   "停转后输出保持 0、看门狗未触发",
+   true
+  ],
+  [
+   "1 kHz 最长周期 1500 μs < 2 ms",
+   true
+  ]
+ ],
+ "attitude_verdict": "正常",
+ "passed": true,
+ "usb_kept": true,
+ "usb_resets": 0,
+ "usb_reset_reasons": [],
+ "audio": {
+  "fs": 48000,
+  "sec": 58.230916666666666,
+  "ok": true,
+  "seg": {
+   "i0": 395,
+   "i1": 453,
+   "t0": 49.5,
+   "t1": 56.75,
+   "dur": 7.25,
+   "rise_db": 11.369706540466552,
+   "ok": true
+  },
+  "f_rot": 208.75,
+  "f_bpf": 417.5,
+  "rpm": 12525.0,
+  "comb_score": 5.0,
+  "octave_down": 0.5,
+  "comb_vals": [
+   7.2,
+   9.6,
+   8.3,
+   7.3,
+   1.4,
+   2.8,
+   0.0,
+   3.7
+  ],
+  "peaks": [
+   [
+    460.0,
+    11.0
+   ],
+   [
+    424.0,
+    9.6
+   ],
+   [
+    632.0,
+    8.3
+   ],
+   [
+    848.0,
+    7.3
+   ],
+   [
+    212.0,
+    7.2
+   ],
+   [
+    2232.0,
+    4.9
+   ],
+   [
+    1224.0,
+    4.4
+   ],
+   [
+    1312.0,
+    4.1
+   ]
+  ],
+  "T_motor": 0.09334426511718752,
+  "thrust_frac": 0.47576078041379977,
+  "u_hover_est": 0.43493758205869837,
+  "n_sim": 110.01047755608712,
+  "speed_ratio_vs_sim": 1.8975465304527204,
+  "thrust_ratio_vs_sim": 3.600682835233157,
+  "u": 0.3,
+  "vb": 3.41,
+  "imu": {
+   "err_hz": 1.9,
+   "k": 3,
+   "peak": 28.125,
+   "peaks": [
+    6.25,
+    28.125,
+    11.71875
+   ],
+   "consistent": true
+  }
+ },
+ "user_lifted": false,
+ "user_note_ok": true
+}
