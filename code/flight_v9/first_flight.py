@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""first_flight.py —— Stage 33 系留首飞（装桨、真飞，油门上限 70%）
+"""first_flight.py —— Stage 33/34 系留首飞（装桨、真飞，油门上限 85%）
 
 ★ 这是第一次真正离地飞行。脚本会先逐项确认检查清单（FIRST_FLIGHT.md 第 2 节），任何一项答"否"就退出、什么都不做。
 流程：
-  1. 检查清单 → 输入「系留首飞」→ 核对镜像（MOTOR OUTPUT u_max=0.70f, acc_lpf=10.0f）后烧 build_ff → 开机核对（电机驱动、上限、推力换算、电压）
+  1. 检查清单 → 输入「系留首飞」→ 核对镜像（MOTOR OUTPUT u_max=0.85f, acc_lpf=10.0f）后烧 build_ff → 开机核对（电机驱动、上限、推力换算、电压）
   2. 电脑开始录音（测悬停转速，--no-audio 关闭）
   3. **拔掉 USB（电池别拔）**——飞行要拴绳活动，USB 线会缠桨；拔完看手机网页是否还连着（没连着 = 拔 USB 时断电了，先查电源）
   4. 手机「按住解锁」→「按住起飞」：升到约 0.8 m → 悬停 5 s → 以 0.35 m/s 自动降落 → 触地停桨（共约 10 s）。异常立刻「急停」
@@ -22,10 +22,10 @@ try:
 except Exception:
     audio_rpm = None
 
-U_MAX = 0.70
-TAG = 'MOTOR OUTPUT u_max=0.70f, acc_lpf=10.0f'
-DUTY_SCALE = 0.5553            # FC_DUTY_SCALE（flight_core.h：0.42 × 4.17 / (0.85246 × 3.7)），开机时用 STATUS thrust_map 覆盖
-HOVER_BELIEF = 0.42
+U_MAX = 0.85
+TAG = 'MOTOR OUTPUT u_max=0.85f, acc_lpf=10.0f'
+DUTY_SCALE = 0.6563            # FC_DUTY_SCALE（flight_core.h：0.50 × 4.14 / (0.85246 × 3.7)），开机时用 STATUS thrust_map 覆盖
+HOVER_BELIEF = 0.50
 EXPECT = ['armed', 'takeoff', 'stable_hold', 'land_auto', 'landed']
 
 
@@ -104,6 +104,7 @@ def analyse_flight(slots, scale=DUTY_SCALE, umax=U_MAX):
     res['passed'] = all(ok for _, ok in checks)
     if ck:
         res['hover_duty_next'] = round(HOVER_BELIEF * ck, 3)      # 下次编译用的 FC_HOVER_DUTY
+    res['spin_max_dps'] = max(abs(s['gz_dps']) for s in on)
     return res
 
 
@@ -122,6 +123,7 @@ def report(r):
     if r['ck_hold']:
         print(f'   【推力】悬停真实占空比 {r["duty_hold"]:.3f}；推力修正系数 c_k {r["ck_hold"]:.3f}（1 = 换算正好）'
               f' → 下次换算可改为悬停 {r["hover_duty_next"]:.3f} @ 静止电压')
+    print(f'   【自转】偏航转速最大 {r["spin_max_dps"]:.0f} °/s' + ('（触发了自转保护 → 降落）' if r['land_why'] == 'land_spin' else ''))
     print(f'   【其他】门控 k<0.5 占 {r["k_lt05"] * 100:.0f}%；振动中位 {r["vib_med"]:.2f} g；电池 静止 {r["vb_static"]:.2f} → 最低读数 {r["vb_min"]:.2f} V；'
           f'1 kHz 最长周期 {r["per_max_us"]} μs')
     print('\n' + ('✓ 首飞流程全部正常' if r['passed'] else '✗ 有项目没通过，先把结果发给我，别急着飞第二次'))
@@ -154,7 +156,7 @@ def main():
         import glob
         if not glob.glob(PORT):
             sys.exit(f'✗ 找不到串口 {PORT}，请插上 USB。')
-        V.flash('build_ff', TAG, '首飞版（油门上限 70%）')
+        V.flash('build_ff', TAG, f'首飞版（油门上限 {U_MAX:.0%}）')
     ser, st = V.open_and_wait_boot()
     tm = dict(zip(st.get('thrust_map', '').split()[::2], st.get('thrust_map', '').split()[1::2]))
     print(f'   固件 {st.get("fw", "?")}')
@@ -163,7 +165,7 @@ def main():
     bad = (st.get('motor_output') != '1' or abs(float(st.get('u_max') or 0) - U_MAX) > 1e-4 or st.get('state') != 'DISARMED'
            or 'acc_lpf' not in st.get('fw', '') or tm.get('adapt') != '1')
     if bad:
-        sys.exit('✗ 板上不是「首飞版、油门上限 0.70、推力在线修正开、未解锁」，停止。')
+        sys.exit(f'✗ 板上不是「首飞版、油门上限 {U_MAX:.2f}、推力在线修正开、未解锁」，停止。')
     scale = float(tm.get('scale', DUTY_SCALE))
     try:
         vb = float(st.get('vbatt', 0))

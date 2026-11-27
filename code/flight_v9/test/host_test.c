@@ -264,7 +264,7 @@ static void core_run2(float sec, float az_g, float vb, float zb)
 static float max_out(void) { float m = 0; for (int i = 0; i < 4; i++) m = s_c.u_out[i] > m ? s_c.u_out[i] : m; return m; }
 static void test_core_thrust(void)
 {
-    printf("[5] 推力换算：静止电压保持、贴地不修正、空中在线修正（换算系数 %.3f）\n", (double)FC_DUTY_SCALE);
+    printf("[5] 推力换算：静止电压保持、贴地推力不够只上调、空中在线修正（换算系数 %.3f）\n", (double)FC_DUTY_SCALE);
     const float a0[3] = {0, 0, 9.81f};
     fc_init(&s_c, a0); s_k = 0; s_seq = 0; s_ev = 0;
     core_run2(0.5f, 1.0f, 4.15f, 0.0f); fc_command(&s_c, FSM_CMD_ARM); core_run2(0.2f, 1.0f, 4.15f, 0.0f);
@@ -272,10 +272,16 @@ static void test_core_thrust(void)
     CHECK(s_c.fsm.st == FSM_TAKEOFF && fabsf(s_c.vb_ctrl - 4.15f) < 1e-3f, "通电后控制用电压保持通电前的 4.15 V（读数 %.2f V，控制用 %.2f V）",
           (double)s_c.vbatt, (double)s_c.vb_ctrl);
     float omax = 0; for (int i = 0; i < 1500; i++) { core_run2(0.001f, 1.0f, 3.30f, 0.0f); if (max_out() > omax) omax = max_out(); }
-    CHECK(s_c.c_k == 1.0f && !s_c.adapting, "贴地起飞（高度不升、比力 1 g）不做在线修正（c_k %.3f）", (double)s_c.c_k);
-    CHECK(omax <= FC_DUTY_SCALE * 1.0001f, "真实占空比不超过 换算系数 × 1（最大 %.3f）", (double)omax);
-    core_run2(5.0f, 1.0f, 3.30f, 0.0f);
-    CHECK(s_c.fsm.st == FSM_LAND || s_c.fsm.st == FSM_DISARMED, "贴地 6 s 没离地 → 起飞超时 → 降落（状态 %s）", FSM_STATE_NAME[s_c.fsm.st]);
+    CHECK(s_c.c_k > 1.05f && s_c.adapting == 2, "贴地推力不够（比力 1 g、控制器以为 %.2f 倍重力）→ c_k 只往上调（%.3f）", (double)s_c.tf_lp, (double)s_c.c_k);
+    for (int i = 0; i < 5000; i++) { core_run2(0.001f, 1.0f, 3.30f, 0.0f); if (max_out() > omax) omax = max_out(); }
+    CHECK(omax <= FC_DUTY_SCALE * FC_ADAPT_MAX * 1.0001f, "真实占空比不超过 换算系数 × c_k 上限（最大 %.3f）", (double)omax);
+    CHECK(s_c.fsm.st == FSM_LAND || s_c.fsm.st == FSM_DISARMED, "贴地 6 s 没离地 → 起飞超时 → 降落（状态 %s，c_k 停在 %.3f）", FSM_STATE_NAME[s_c.fsm.st], (double)s_c.c_k);
+    {   /* 贴地但比力明显 > 1 g（在加速上升）→ 不上调 */
+        fc_init(&s_c, a0); s_k = 0; s_seq = 0; s_ev = 0;
+        core_run2(0.5f, 1.0f, 4.15f, 0.0f); fc_command(&s_c, FSM_CMD_ARM); core_run2(0.2f, 1.0f, 4.15f, 0.0f);
+        fc_command(&s_c, FSM_CMD_TAKEOFF); core_run2(1.5f, 1.15f, 4.15f, 0.0f);
+        CHECK(s_c.c_k <= 1.0f && s_c.adapting != 2, "起飞中比力 1.15 g（在加速上升）→ 不做贴地上调（c_k %.3f，离地后由空中修正往下拉）", (double)s_c.c_k);
+    }
     /* 空中闭环：真实推力 = s0 × c_k² × 控制器以为的推力（真机推力曲线与假设差一个常数 s0），竖直一维动力学 */
     const float s0s[3] = {1.25f, 0.80f, 3.0f};
     for (int t = 0; t < 3; t++) {
@@ -301,6 +307,33 @@ static void test_core_thrust(void)
     }
 }
 
+/* ---------------- 6. 自转保护（Stage 34） ---------------- */
+static fsm_event_t spin_run(fsm_t *f, fsm_in_t in, float sec)
+{
+    fsm_event_t last = FSM_EV_NONE;
+    for (int i = 0; i < (int)(sec / 0.005f + 0.5f); i++) { fsm_event_t e = fsm_step(f, FSM_CMD_NONE, &in, 0.005f); if (e != FSM_EV_NONE) last = e; }
+    return last;
+}
+static void test_spin(void)
+{
+    printf("[6] 自转保护：起飞 / 悬停中偏航 > %.2f rad/s 持续 %.1f s → 降落\n", (double)FSM_SPIN_W, (double)FSM_SPIN_T);
+    fsm_t f; fsm_in_t in = ok_in(); fsm_event_t e;
+    armed(&f); fsm_step(&f, FSM_CMD_TAKEOFF, &in, 0.005f);
+    in.wz = -4.0f; e = spin_run(&f, in, 0.45f);
+    CHECK(f.st == FSM_TAKEOFF, "起飞中自转 0.45 s 还不降落（状态 %s）", FSM_STATE_NAME[f.st]);
+    e = spin_run(&f, in, 0.1f);
+    CHECK(f.st == FSM_LAND && e == FSM_EV_LAND_SPIN, "起飞中自转 4 rad/s 持续 0.5 s → 降落（状态 %s，事件 %s）", FSM_STATE_NAME[f.st], FSM_EV_NAME[e]);
+    in.wz = -6.0f; e = spin_run(&f, in, 3.0f);
+    CHECK(f.st == FSM_LAND || f.st == FSM_DISARMED, "降落中继续自转不会被打断（状态 %s）", FSM_STATE_NAME[f.st]);
+    holding(&f); in = ok_in(); in.wz = 2.5f; e = spin_run(&f, in, 2.0f);
+    CHECK(f.st == FSM_HOLD, "悬停中 2.5 rad/s（低于阈值）不降落（状态 %s）", FSM_STATE_NAME[f.st]);
+    in.wz = 3.5f; e = spin_run(&f, in, 0.6f);
+    CHECK(f.st == FSM_LAND && e == FSM_EV_LAND_SPIN, "悬停中 3.5 rad/s 持续 0.6 s → 降落（事件 %s）", FSM_EV_NAME[e]);
+    launched(&f); in = ok_in(); in.wz = 8.0f; in.r22 = 0.0f; e = spin_run(&f, in, 1.0f);
+    CHECK(f.st == FSM_RECOVER, "回正中（抛出带偏航转速）不触发自转保护（状态 %s）", FSM_STATE_NAME[f.st]);
+    (void)e;
+}
+
 int main(void)
 {
     test_controller();
@@ -308,6 +341,7 @@ int main(void)
     test_alt();
     test_core_link();
     test_core_thrust();
+    test_spin();
     printf("\n通过 %d / %d\n", n_pass, n_pass + n_fail);
     return n_fail ? 1 : 0;
 }

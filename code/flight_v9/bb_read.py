@@ -15,7 +15,7 @@ RAW = ['idx', 't_ms', 'boot', 'st', 'mode', 'ev', 'flags', 'k', 'chk', 'qw', 'qx
 STATE = ['DISARMED', 'ARMED', 'TAKEOFF', 'RECOVER', 'HOLD', 'LAND']
 EV = ["none", "armed", "launch", "takeoff", "stable_hold", "land_auto", "land_cmd", "land_low_voltage", "land_recover_timeout",
       "land_takeoff_timeout", "land_flight_timeout", "land_link_lost", "landed", "disarm_cmd", "arm_timeout", "land_timeout_kill",
-      "impact", "estimator_fail", "refuse_vbatt", "refuse_tilt", "refuse_estimator", "refuse_state", "disarm_link_lost", "refuse_link"]
+      "impact", "estimator_fail", "refuse_vbatt", "refuse_tilt", "refuse_estimator", "refuse_state", "disarm_link_lost", "refuse_link", "land_spin"]
 RESET = {0: 'UNKNOWN', 1: 'POWERON', 2: 'EXT', 3: 'SW', 4: 'PANIC', 5: 'INT_WDT', 6: 'TASK_WDT', 7: 'WDT', 8: 'DEEPSLEEP', 9: 'BROWNOUT',
          10: 'SDIO', 11: 'USB', 12: 'JTAG', 13: 'EFUSE', 14: 'PWR_GLITCH', 15: 'CPU_LOCKUP'}
 

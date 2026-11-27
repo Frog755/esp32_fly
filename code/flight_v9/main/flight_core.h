@@ -33,12 +33,19 @@
  * 2) 推力在线修正 c_k：机体 z 轴比力（加计，低通）/ 控制器以为的推力比 = 实际推力 / 以为的推力（不管怎么动都成立）。
  *    只在**确定离地**时更新（HOLD，或 TAKEOFF 且高度比起飞点高 0.3 m）：贴地时地面托着，比力永远 = 1 g，会把推力不够误判成够了。
  *    c_k ← c_k·(以为/实际)^(dt/2τ)，τ = FC_ADAPT_TAU；限幅 [FC_ADAPT_MIN, FC_ADAPT_MAX]；每次开机从 1 开始。
- * 选偏低的悬停估计更安全：推力不够只会起飞超时 → 自动降落（不会离地，也就不会修正）；推力过大由 2) 在空中拉回来。 */
+ * 3) 贴地推力不够时上调 c_k（Stage 34）：第 1 次系留首飞（Stage 33）推力 95% 时间饱和、离地只有 4 cm——
+ *    控制器以为推力是重力 1.58 倍，机体比力实测 0.98 g；而 2) 要离地 0.3 m 才启动，推力不够就永远不启动。
+ *    起飞中、还没离地、控制器以为的推力 > FC_GROUND_TF 倍重力、比力 < FC_GROUND_AZ（没在加速上升）时，
+ *    c_k 以 FC_GROUND_RATE（/s）缓慢上调；一旦开始加速上升就停，离地后由 2) 双向修正（推力多了会拉回来）。
+ *    贴地时地面托着，比力 ≤ 1 g，只能判断"不够"、不能判断"够了"，所以只往上调。
+ * 悬停估计（Stage 34）：Stage 33 实测静止 4.14 V、贴地时占空比 0.53 推力约等于重力（读数掉到 3.0~3.1 V）。
+ *   供电修好后（不再掉 1 V）悬停会低得多（按 T ∝ (d·V)² 约 0.42）；没修好、离地后约 0.55~0.6。
+ *   取中间 0.50：c_k 0.75~1.30 覆盖 0.375~0.65，两种情况都在范围内。 */
 #ifndef FC_HOVER_DUTY
-#define FC_HOVER_DUTY    0.42f    /* 静止电压 FC_HOVER_VB 时的悬停占空比（录音 + "40% 快离地"估计 0.41~0.47） */
+#define FC_HOVER_DUTY    0.50f    /* 静止电压 FC_HOVER_VB 时的悬停占空比 */
 #endif
 #ifndef FC_HOVER_VB
-#define FC_HOVER_VB      4.17f    /* V：三次振动检查的静止电压 4.13 / 4.17 / 4.21 */
+#define FC_HOVER_VB      4.14f    /* V：Stage 33 首飞前静止电压 */
 #endif
 #define FC_MODEL_HOVER_U 0.85246f /* sqrt(EXP9_MASS·g / (4·EXP9_TMAX))：模型在 EXP9_VREF 下的悬停指令 */
 #define FC_DUTY_SCALE    (FC_HOVER_DUTY * FC_HOVER_VB / (FC_MODEL_HOVER_U * EXP9_VREF))
@@ -50,6 +57,13 @@
 #define FC_ADAPT_MIN     0.75f    /* 修正范围：悬停占空比 ×0.75 ~ ×1.30 */
 #define FC_ADAPT_MAX     1.30f
 #define FC_ADAPT_CLIMB   0.30f    /* m：TAKEOFF 中高度比起飞点高这么多才算离地 */
+#ifndef FC_GROUND_ADAPT
+#define FC_GROUND_ADAPT  1
+#endif
+#define FC_GROUND_T0     0.5f     /* s：进入 TAKEOFF 这么久之后才开始判断（推力爬升中） */
+#define FC_GROUND_TF     1.20f    /* 控制器以为的推力 / 重力 超过它 …… */
+#define FC_GROUND_AZ     1.05f    /* …… 而机体比力低于它（g）→ 推力不够 */
+#define FC_GROUND_RATE   0.15f    /* 1/s：c_k 上调速率（1.0 → 1.30 约 1.8 s） */
 
 #ifndef FC_ACC_LPF_HZ
 #define FC_ACC_LPF_HZ    10.0f    /* Hz：喂给门控 Mahony 的加计低通（Stage 30 真机振动回放：姿态误差 7.5° → 0.8°，见 acc_lpf.h） */
@@ -122,7 +136,7 @@ static inline int fc_step(fc_t *c, const float a[3], const float g[3], float dt,
     const float *q = c->mg.q;
     const float qn = q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3];
     fsm_in_t in = {.vbatt = c->vbatt, .acc_norm_g = c->anorm_g, .r22 = 1.0f - 2.0f * (q[1] * q[1] + q[2] * q[2]),
-                   .w_norm = c->w_norm, .gate_k = c->k, .z = c->alt.z, .vz = c->alt.vz, .thrust_frac = c->thrust_frac,
+                   .w_norm = c->w_norm, .wz = g[2], .gate_k = c->k, .z = c->alt.z, .vz = c->alt.vz, .thrust_frac = c->thrust_frac,
                    .est_ok = imu_ok && isfinite(qn) && qn > 0.5f && c->t_baro < FC_BARO_STALE_S && isfinite(c->alt.z),
                    .link_ok = fc_link_ok(c)};
     const fsm_cmd_t cmd = (fsm_cmd_t)c->pending_cmd; c->pending_cmd = FSM_CMD_NONE;
@@ -152,8 +166,12 @@ static inline int fc_step(fc_t *c, const float a[3], const float g[3], float dt,
         float ratio = c->az_lp / c->tf_lp;                                  /* 实际推力 / 以为的推力 */
         ratio = ratio < 0.5f ? 0.5f : (ratio > 2.0f ? 2.0f : ratio);
         c->c_k *= powf(ratio, -0.005f / (2.0f * FC_ADAPT_TAU));
-        c->c_k = c->c_k < FC_ADAPT_MIN ? FC_ADAPT_MIN : (c->c_k > FC_ADAPT_MAX ? FC_ADAPT_MAX : c->c_k);
+    } else if (FC_GROUND_ADAPT && on && c->fsm.st == FSM_TAKEOFF && !airborne && c->fsm.t_state > FC_GROUND_T0 &&
+               in.r22 > 0.9f && c->tf_lp > FC_GROUND_TF && c->az_lp < FC_GROUND_AZ) {
+        c->c_k *= 1.0f + FC_GROUND_RATE * 0.005f;                           /* 贴地推力不够：只往上调 */
+        c->adapting = 2;
     }
+    c->c_k = c->c_k < FC_ADAPT_MIN ? FC_ADAPT_MIN : (c->c_k > FC_ADAPT_MAX ? FC_ADAPT_MAX : c->c_k);
     for (int i = 0; i < 4; i++) c->u_out[i] = on ? c->u_cmd[i] * FC_DUTY_SCALE * c->c_k : 0.0f;
     return 1;
 }

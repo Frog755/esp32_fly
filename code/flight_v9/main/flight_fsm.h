@@ -11,7 +11,8 @@
  * 只在 TAKEOFF / RECOVER / HOLD / LAND 四个状态输出电机（fsm_motors_on）。
  * 停桨（→ DISARMED）：disarm 指令（任何状态立即生效）、触地、撞击 >6 g、估计器失效、LAND 超过 20 s、ARMED 20 s 未出手。
  * 转入降落（不停桨，空中停桨等于摔机）：悬停满 5 s、land 指令、低电压、回正 4 s 未稳定、起飞 6 s 未到高度、通电飞行累计 40 s、
- *   遥控链路丢失（手机心跳超时，见 flight_core.h FC_LINK_TIMEOUT；LAND 中丢失不影响继续降落）。
+ *   遥控链路丢失（手机心跳超时，见 flight_core.h FC_LINK_TIMEOUT；LAND 中丢失不影响继续降落）、
+ *   起飞 / 悬停中偏航自转 > 半圈每秒持续 0.5 s（land_spin，Stage 34）。
  * 链路：解锁必须有链路；ARMED 中链路丢失 → 上锁（还没出手，最安全的处理）。
  * "稳定"判据与仿真评测一致（vec_recovery_env.STABLE_CRIT）：机体 z 轴夹角 <18°、|ω| <1.2 rad/s、|vz| <0.5 m/s。
  */
@@ -53,6 +54,10 @@
 #define FSM_LOWV_T          0.5f
 #define FSM_IMPACT_G        6.0f    /* 比力模长 > 6 g 视为撞击 → 停桨 */
 #define FSM_IMPACT_ARM_T    0.3f    /* s：开始飞行 0.3 s 后才启用撞击判据（出手瞬间的冲击） */
+#ifndef FSM_SPIN_W
+#define FSM_SPIN_W          3.14f   /* rad/s：起飞 / 悬停中偏航转速超过半圈每秒 …… */
+#endif
+#define FSM_SPIN_T          0.5f    /* …… 持续 0.5 s → 转入降落（Stage 33 首飞：推力饱和时自转加速到 2.5 圈/秒） */
 
 typedef enum { FSM_DISARMED = 0, FSM_ARMED, FSM_TAKEOFF, FSM_RECOVER, FSM_HOLD, FSM_LAND, FSM__NST } fsm_state_t;
 typedef enum { FSM_CMD_NONE = 0, FSM_CMD_ARM, FSM_CMD_DISARM, FSM_CMD_TAKEOFF, FSM_CMD_LAND } fsm_cmd_t;
@@ -65,6 +70,7 @@ typedef enum {
     FSM_EV_DISARM_CMD, FSM_EV_ARM_TIMEOUT, FSM_EV_LAND_TIMEOUT, FSM_EV_IMPACT, FSM_EV_EST_FAIL,
     FSM_EV_REFUSE_VBAT, FSM_EV_REFUSE_TILT, FSM_EV_REFUSE_EST, FSM_EV_REFUSE_STATE,
     FSM_EV_DISARM_LINK, FSM_EV_REFUSE_LINK,
+    FSM_EV_LAND_SPIN,                 /* Stage 34：追加在末尾，已有事件编号不变（黑匣子 / 网页 / 脚本按编号解析） */
     FSM_EV__N
 } fsm_event_t;
 
@@ -75,7 +81,7 @@ static const char *const FSM_EV_NAME[FSM_EV__N] = {
     "landed",
     "disarm_cmd", "arm_timeout", "land_timeout_kill", "impact", "estimator_fail",
     "refuse_vbatt", "refuse_tilt", "refuse_estimator", "refuse_state",
-    "disarm_link_lost", "refuse_link"};
+    "disarm_link_lost", "refuse_link", "land_spin"};
 static const char *const FSM_STATE_NAME[FSM__NST] = {"DISARMED", "ARMED", "TAKEOFF", "RECOVER", "HOLD", "LAND"};
 
 typedef struct {
@@ -83,6 +89,7 @@ typedef struct {
     float acc_norm_g;   /* 比力模长 / g */
     float r22;          /* 机体 z 轴在世界 z 上的分量（1 = 水平，−1 = 倒扣） */
     float w_norm;       /* |ω| rad/s */
+    float wz;           /* 机体偏航角速度 rad/s（自转保护） */
     float gate_k;       /* 门控 Mahony 当前修正增益 */
     float z, vz;        /* 竖直估计 m、m/s */
     float thrust_frac;  /* 上一拍控制器总推力 / 重力 */
@@ -94,7 +101,7 @@ typedef struct {
     fsm_state_t st;
     float t_state;      /* 当前状态已持续 s */
     float t_motor;      /* 本次通电飞行累计 s */
-    float t_ff, t_lowv, t_stable, t_land;
+    float t_ff, t_lowv, t_stable, t_land, t_spin;
     float z_target;     /* 给控制器的目标高度 */
     float z_goal;       /* 起飞目标 */
     float t_hold_done;  /* HOLD 实际时长（遥测） */
@@ -102,7 +109,7 @@ typedef struct {
 
 static inline void fsm_init(fsm_t *f)
 {
-    f->st = FSM_DISARMED; f->t_state = f->t_motor = f->t_ff = f->t_lowv = f->t_stable = f->t_land = 0.0f;
+    f->st = FSM_DISARMED; f->t_state = f->t_motor = f->t_ff = f->t_lowv = f->t_stable = f->t_land = f->t_spin = 0.0f;
     f->z_target = f->z_goal = 0.0f; f->t_hold_done = 0.0f;
 }
 static inline int fsm_motors_on(const fsm_t *f) { return f->st >= FSM_TAKEOFF; }
@@ -111,7 +118,7 @@ static inline fsm_event_t fsm_go(fsm_t *f, fsm_state_t s, fsm_event_t ev, const 
 {
     if (s == FSM_LAND && f->z_target > in->z) f->z_target = in->z;      /* 降落从当前高度开始，不先爬升 */
     if (s >= FSM_TAKEOFF && f->st < FSM_TAKEOFF) f->t_motor = 0.0f;
-    f->st = s; f->t_state = 0.0f; f->t_ff = 0.0f; f->t_stable = 0.0f; f->t_land = 0.0f;
+    f->st = s; f->t_state = 0.0f; f->t_ff = 0.0f; f->t_stable = 0.0f; f->t_land = 0.0f; f->t_spin = 0.0f;
     if (s < FSM_TAKEOFF) f->t_lowv = 0.0f;
     return ev;
 }
@@ -159,6 +166,9 @@ static inline fsm_event_t fsm_step(fsm_t *f, fsm_cmd_t cmd, const fsm_in_t *in, 
         f->t_lowv = (in->vbatt < FSM_LOWV) ? f->t_lowv + dt : 0.0f;           /* NaN 不计入 */
         if (f->t_lowv >= FSM_LOWV_T) return fsm_go(f, FSM_LAND, FSM_EV_LAND_LOWV, in);
         if (f->t_motor >= FSM_ACTIVE_TMAX) return fsm_go(f, FSM_LAND, FSM_EV_LAND_ACTIVE_TO, in);
+        /* 自转保护：只管起飞 / 悬停（回正时的快速翻转在 x/y 轴，抛出时的初始偏航转速由回正处理） */
+        f->t_spin = ((f->st == FSM_TAKEOFF || f->st == FSM_HOLD) && fabsf(in->wz) > FSM_SPIN_W) ? f->t_spin + dt : 0.0f;
+        if (f->t_spin >= FSM_SPIN_T) return fsm_go(f, FSM_LAND, FSM_EV_LAND_SPIN, in);
     }
     const int stable = in->r22 > FSM_STABLE_R22 && in->w_norm < FSM_STABLE_W && fabsf(in->vz) < FSM_STABLE_VZ;
     f->t_stable = stable ? f->t_stable + dt : 0.0f;

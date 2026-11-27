@@ -26,7 +26,7 @@ INC = [FW, os.path.join(ROOT, 'code', 'connection_test', 'main')]
 ST = ['DISARMED', 'ARMED', 'TAKEOFF', 'RECOVER', 'HOLD', 'LAND']
 EV = ["none", "armed", "launch", "takeoff", "stable_hold", "land_auto", "land_cmd", "land_low_voltage", "land_recover_timeout",
       "land_takeoff_timeout", "land_flight_timeout", "land_link_lost", "landed", "disarm_cmd", "arm_timeout", "land_timeout_kill",
-      "impact", "estimator_fail", "refuse_vbatt", "refuse_tilt", "refuse_estimator", "refuse_state", "disarm_link_lost", "refuse_link"]
+      "impact", "estimator_fail", "refuse_vbatt", "refuse_tilt", "refuse_estimator", "refuse_state", "disarm_link_lost", "refuse_link", "land_spin"]
 CMD = dict(none=0, arm=1, disarm=2, takeoff=3, land=4)
 
 WRAP = r'''
@@ -119,14 +119,16 @@ NOISE = {
 
 
 def run(L, scen, noise, N, seed, T=30.0, mount_deg=None, u_max=1.0, soc=1.0, plant_tmax=None,
-        plant_hover=None, plant_knee=None, vb_mode='true', plant_rint=None):
+        plant_hover=None, plant_knee=None, vb_mode='true', plant_rint=None, yaw_dist=0.0):
     """u_max：与固件 motor_out_write() 同位置的油门上限（作用在真实占空比上）；soc：开局电量
     被控对象（"真机"）推力曲线（Stage 31）：固件输出真实占空比 d = FC_DUTY_SCALE·u_cmd，
       plant_hover=None：推力曲线与固件的假设完全一致（= 旧 SIL：模型推力 0.27 N 在控制器空间）；
       plant_hover=x：真机在开局工作电压下的悬停占空比为 x（低油门 T ∝ (d·V)²）；
       plant_knee=k：转速在高占空比变平，d_eff = k·tanh(d/k)（None = 不变平）；
       vb_mode='offset'：电池读数 = 真实电压 − min(0.85, 3·d̄)（模拟实测"一转就掉 0.8 V"的测量偏差）；
-      plant_rint=r：电池 + 线路内阻 Ω（模拟"掉 0.8 V 是真实压降"，悬停 ~2.7 A 时 0.31 Ω ≈ 0.85 V）。"""
+      plant_rint=r：电池 + 线路内阻 Ω（模拟"掉 0.8 V 是真实压降"，悬停 ~2.7 A 时 0.31 Ω ≈ 0.85 V）；
+      yaw_dist=a：电机转着时的偏航扰动角加速度 rad/s²（按 (转速/满转)² 缩放，满转时为 a；Stage 33 首飞拟合约 −3.5，
+        随机正负号与 ±30% 大小 → 电机 / 桨个体差异）。地面对偏航的摩擦按压在地上的力占重力的比例缩放。"""
     rng = np.random.default_rng(seed)
     nz = dict(NOISE[noise]);
     if mount_deg is not None:
@@ -150,6 +152,7 @@ def run(L, scen, noise, N, seed, T=30.0, mount_deg=None, u_max=1.0, soc=1.0, pla
     mg = None if nz['mgain'] == 0 else rng.uniform(1 - nz['mgain'], 1 + nz['mgain'], (N, 4))
     dyn = VecQuadDynamics(N, p, motor_gain=mg)
     dt = dyn.dt
+    ydist = yaw_dist * rng.choice([-1.0, 1.0], N) * rng.uniform(0.7, 1.3, N) if yaw_dist else None
     # ---------------- 初始状态 ----------------
     if scen == 'throw':
         quat = random_quats(N, rng)
@@ -214,6 +217,7 @@ def run(L, scen, noise, N, seed, T=30.0, mount_deg=None, u_max=1.0, soc=1.0, pla
     prev_st = np.full(N, 1 if scen != 'takeoff' else 0); airborne = np.zeros(N, bool)
     estz_err = []
     dhold = np.zeros(N); dhold_n = np.zeros(N); dpeak = np.zeros(N)
+    wz_max = np.zeros(N)
     zmax = np.full(N, -np.inf); sat_n = np.zeros(N); hold_n = np.zeros(N); umax_hold = np.zeros(N); vb_min = np.full(N, np.inf)
     for k in range(K):
         t = k * dt
@@ -224,6 +228,8 @@ def run(L, scen, noise, N, seed, T=30.0, mount_deg=None, u_max=1.0, soc=1.0, pla
                 L.sil_cmd(N, np.full(N, CMD['takeoff'], np.int32))
         dcmd = np.minimum(u, u_max).astype(np.float64)
         dyn.step(gfun(dcmd) if plant_hover is not None else dcmd)
+        if ydist is not None:
+            dyn.w[:, 2] += ydist * (dyn.rotor_w.mean(axis=1) / dyn.wm) ** 2 * dt
         # 地面：弹簧阻尼 + 摩擦
         pen = -dyn.pos[:, 2]; m = pen > 0
         if m.any():
@@ -233,7 +239,8 @@ def run(L, scen, noise, N, seed, T=30.0, mount_deg=None, u_max=1.0, soc=1.0, pla
                 tilt = np.degrees(np.arccos(np.clip(1 - 2 * (dyn.quat[newc, 1] ** 2 + dyn.quat[newc, 2] ** 2), -1, 1)))
                 first_contact[newc] = t; c_vz[newc] = dyn.vel[newc, 2]; c_tilt[newc] = tilt; c_state[newc] = st[newc]
             dyn.vel[m, 2] += acc * dt; dyn.last_acc[m, 2] += acc
-            fr = np.exp(-mu * dt); dyn.vel[m, 0] *= fr; dyn.vel[m, 1] *= fr; dyn.w[m] *= np.exp(-30 * dt)
+            fr = np.exp(-mu * dt); dyn.vel[m, 0] *= fr; dyn.vel[m, 1] *= fr; dyn.w[m, :2] *= np.exp(-30 * dt)
+            dyn.w[m, 2] *= np.exp(-30 * dt * np.minimum(1.0, F / (dyn.mass[m] * G)))     # 偏航摩擦 ∝ 压在地上的力
         fi, wi = sense(t)
         if k % 20 == 0:
             bn[:] = 1; bz[:] = (dyn.pos[:, 2] + baro_err(t)).astype(np.float32)
@@ -255,6 +262,7 @@ def run(L, scen, noise, N, seed, T=30.0, mount_deg=None, u_max=1.0, soc=1.0, pla
         zmin = np.where(fl, np.minimum(zmin, dyn.pos[:, 2]), zmin)
         zmax = np.where(fl, np.maximum(zmax, dyn.pos[:, 2]), zmax)
         vb_min = np.where(fl, np.minimum(vb_min, dyn.v_batt), vb_min)
+        wz_max = np.where(fl, np.maximum(wz_max, np.abs(dyn.w[:, 2])), wz_max)
         hs = (st == 4) | (st == 2)
         hold_n += hs; sat_n += hs & (u.max(axis=1) >= min(u_max, kscale) * (1 - 1e-3))     # 顶到控制器上限（u_cmd = 1）或油门上限
         umax_hold = np.where(st == 4, np.maximum(umax_hold, u.max(axis=1)), umax_hold)
@@ -302,7 +310,8 @@ def run(L, scen, noise, N, seed, T=30.0, mount_deg=None, u_max=1.0, soc=1.0, pla
                detect_delay_med=pct(np.where(c_state == 5, det_delay, np.nan), 50), detect_delay_p90=pct(np.where(c_state == 5, det_delay, np.nan), 90),
                flight_time_med=pct(t_off - t_on, 50), drift_med=pct(drift, 50), drift_p90=pct(drift, 90),
                vxy_hold_max_med=pct(vxy_hold_max, 50), vxy_hold_max_p90=pct(vxy_hold_max, 90),
-               hold_z_est_err_mean=float(np.mean(estz_err)) if estz_err else float('nan'), off_events=ev_hist)
+               hold_z_est_err_mean=float(np.mean(estz_err)) if estz_err else float('nan'), off_events=ev_hist,
+               yaw_dist=float(yaw_dist), wz_max_med_dps=pct(np.degrees(wz_max), 50), wz_max_p90_dps=pct(np.degrees(wz_max), 90))
     return res
 
 

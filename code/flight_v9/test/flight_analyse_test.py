@@ -63,7 +63,7 @@ def flight(ck=0.95, ucmd=0.75, roll=2.0, land_ev='land_auto', stop_ev='landed'):
 
 r = FF.analyse_flight(bb_read.parse(flight()))
 check(r['found'] and r['passed'], '标准首飞（c_k 0.95）：全部判定通过')
-check(abs(r['ck_hold'] - 0.95) < 0.005 and abs(r['hover_duty_next'] - 0.399) < 0.002,
+check(abs(r['ck_hold'] - 0.95) < 0.005 and abs(r['hover_duty_next'] - FF.HOVER_BELIEF * 0.95) < 0.002,
       f'从黑匣子反算推力修正系数 {r["ck_hold"]:.3f}（真值 0.95），建议下次悬停 {r["hover_duty_next"]}')
 check(abs(r['z_rise_hold'] - 0.8) < 0.02 and abs(r['hold_s'] - 5.0) < 0.05 and abs(r['t_to_hold'] - 2.0) < 0.02,
       f'悬停高度 {r["z_rise_hold"]:.2f} m、悬停 {r["hold_s"]:.1f} s、起飞到稳定 {r["t_to_hold"]:.2f} s')
