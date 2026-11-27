@@ -1,0 +1,69 @@
+{
+ "found": true,
+ "slot": 1,
+ "boot": 50435,
+ "reset_name": "POWERON",
+ "complete": true,
+ "on_s": 7.265,
+ "events": [
+  "45.38s armed",
+  "47.58s takeoff",
+  "51.30s land_link_lost",
+  "54.84s landed"
+ ],
+ "killed": false,
+ "t_to_hold": null,
+ "hold_s": 0.0,
+ "z_rise_max": 0.04281999999999986,
+ "z_rise_hold": null,
+ "roll_max": 7.076032352058608,
+ "pitch_max": 11.250484628551662,
+ "roll_std_hold": null,
+ "pitch_std_hold": null,
+ "yaw_drift": -29.176745271655534,
+ "ck_hold": null,
+ "ck_end": 1.0004602116973806,
+ "duty_hold": null,
+ "sat_frac": 0.9449664429530201,
+ "k_lt05": 0.692360633172746,
+ "vib_med": 0.688,
+ "vb_static": 4.1389949999999995,
+ "vb_min": 3.016,
+ "per_max_us": 1500,
+ "link_lost": true,
+ "post_zero": true,
+ "stop": "landed",
+ "land_why": "land_link_lost",
+ "checks": [
+  [
+   "离地并进入悬停（stable_hold）",
+   false
+  ],
+  [
+   "悬停满 5 s 后自动降落（land_auto）",
+   false
+  ],
+  [
+   "触地停桨（landed，不是撞击 / 估计失效 / 急停）",
+   true
+  ],
+  [
+   "姿态最大 roll 7.1° / pitch 11.3° < 25°",
+   true
+  ],
+  [
+   "推力修正系数没有顶到限幅（0.75~1.30）：没算出来",
+   false
+  ],
+  [
+   "起飞 + 悬停期间顶上限 < 20%（94%）",
+   false
+  ],
+  [
+   "停桨后输出保持 0、看门狗未触发、遥控链路没断",
+   false
+  ]
+ ],
+ "passed": false,
+ "user_note": ""
+}
