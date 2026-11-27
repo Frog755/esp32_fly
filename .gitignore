@@ -56,3 +56,4 @@ code/flight_v9/test/__pycache__/
 # flight_v9 Stage 28：黑匣子读出的本地输出（每次飞行的正式结果另存 RL/results/stageNN/）
 code/flight_v9/blackbox/
 code/flight_v9/build_vib/
+code/flight_v9/build/audio/

@@ -47,6 +47,7 @@ code/flight_v9/      ★ 正式飞控（ESP-IDF v6.1）——见 code/flight_v9/
   dryrun.sh / level_trim.sh   用户自己运行的检查 / 标定脚本
   motor_bench.sh       Stage 27 拆桨电机台架（用户运行：烧 build_mc → 3 步台架 → 烧回干跑版）
   vib_check.sh         Stage 30 装桨振动检查（用户运行：烧 build_vib 上限 0.30 → 拔 USB 手机起飞 → 读黑匣子分析 → 烧回干跑版）
+  audio_rpm.py         Stage 31 电脑麦克风录电机声音 → 转速 → 推力量级（vib_check 默认录音；--selftest 自检）
   FIRST_FLIGHT.md      Stage 29 首飞方案：油门上限 0.95 的依据、检查清单、飞行步骤
   main/acc_lpf.h       Stage 30 加计 10 Hz 低通，只喂门控 Mahony（装桨振动下门控选择偏差 → 姿态误差 7°，回放见 test/vib_replay.c）
   main/blackbox.h      Stage 28 机载黑匣子（PSRAM noinit，复位保留、断电丢失）；bb_read.sh 读出，bb_selftest.py 上板自检（干跑版）

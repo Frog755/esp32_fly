@@ -11,7 +11,9 @@
   4. 停稳后插回 USB，按回车 → 读出黑匣子 → 分析振动对姿态估计的影响 → 默认烧回干跑版
 判据（飞机贴在地上不动，真实姿态不变，所以"电机转时的姿态估计 − 转之前"就是振动造成的误差）：
   姿态偏差 < 3° 正常；3~8° 需要处理振动后再飞；> 8° 不能飞。另报门控关闭占比、振动、陀螺抖动、偏航漂移。
-输出：blackbox/vib_<时间>.json + 原始读出 + CSV。把终端最后的结果发给我。
+Stage 31：同时用电脑麦克风录电机声音（默认开启，--no-audio 关闭）→ 测转速 → 估推力量级（audio_rpm.py）。
+  电脑放在飞机 1 m 以内；拔掉 USB 不影响录音。
+输出：blackbox/vib_<时间>.json + 原始读出 + CSV + 录音。把终端最后的结果发给我。
 用法：./vib_check.sh [串口]   --no-flash 跳过烧录   --analyse-file X.txt 只离线分析一份已保存的读出
 """
 import sys, os, time, json, glob, subprocess, statistics as stt, math
@@ -19,6 +21,10 @@ import sys, os, time, json, glob, subprocess, statistics as stt, math
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import bb_read
+try:
+    import audio_rpm
+except Exception:
+    audio_rpm = None
 
 args = [a for a in sys.argv[1:] if not a.startswith('--')]
 PORT = args[0] if args and not args[0].endswith('.txt') else '/dev/ttyACM0'
@@ -198,6 +204,16 @@ def main():
     except ValueError:
         pass
     ser.close()
+    rec, wav = None, None
+    if audio_rpm and '--no-audio' not in sys.argv:
+        os.makedirs(os.path.join(HERE, 'blackbox'), exist_ok=True)
+        wav = os.path.join(HERE, 'blackbox', 'vib_' + time.strftime('%Y%m%d_%H%M%S') + '_audio.wav')
+        try:
+            rec = audio_rpm.Recorder(wav, max_s=300)
+            print(f'   🎙 已开始用电脑麦克风录音（{rec.src or "默认输入"}），电脑放在飞机 1 m 以内，录音期间别说话 / 别放音乐')
+        except Exception as e:
+            print(f'   ⚠ 录音没启动（{e}），继续，只做振动分析')
+            rec, wav = None, None
     print('\n' + '-' * 64)
     print('现在按顺序做：')
     print('  1) **拔掉 USB 线**（电池不要拔！拔电池黑匣子就没了）')
@@ -206,6 +222,8 @@ def main():
     print(f'     电机以 {U_MAX:.0%} 转约 6 秒 → 自动降落 → 再约 1~2 秒自己停；飞机应一直贴在地上；异常随时按「急停」')
     print('  4) 电机停稳后，**插回 USB**')
     input('做完第 4 步按回车 ')
+    if rec:
+        print(f'   🎙 录音结束（{rec.stop():.0f} s）')
     print('   等板子出数据……')
     ser, st2 = open_and_wait_boot(30)
     print(f'   状态 {st2.get("state")}  黑匣子 {st2.get("blackbox")}')
@@ -220,6 +238,18 @@ def main():
     r = analyse(slots)
     print('\n================ 振动检查结果 ================')
     report(r)
+    if wav and os.path.exists(wav) and audio_rpm:
+        print('\n================ 电机转速（录音）================')
+        csvs = [os.path.join(od, f'vib_{tag}_slot{r["slot"]}_boot{r["boot"]}.csv')] if r.get('found') else []
+        try:
+            ar = audio_rpm.analyse_external(wav, U_MAX, vb=r.get('vb_min_on') if r.get('found') else None,
+                                            bb_csv=csvs[0] if csvs and os.path.exists(csvs[0]) else None) or {}
+            if ar.get('seg') and r.get('found'):
+                print(f'   （黑匣子通电 {r["on_s"]:.1f} s，录音里电机响 {ar["seg"]["dur"]:.1f} s）')
+            r['audio'] = {k: v for k, v in ar.items() if k != 'path'}
+        except Exception as e:
+            print(f'   ⚠ 录音分析失败：{e}（录音文件已保存，发给我也行）')
+        print(f'   录音文件：{os.path.relpath(wav, HERE)}')
     r['user_lifted'] = yes('\n   飞机离地了吗（哪怕一侧翘起来）？离地答 y，一直贴在地上答 n')
     r['user_note_ok'] = yes('   电机声音正常、4 个电机转速听起来差不多、没有异响 / 明显抖动吗？')
     if r['user_lifted']:
