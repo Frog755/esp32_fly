@@ -40,6 +40,10 @@ void sil_set_est(int n, const float *q, const float *z, const float *vz) {
         C[i].alt.z = z[i]; C[i].alt.vz = vz[i]; C[i].alt.init = 1; } }
 void sil_set_alt(int n, const float *z, const float *vz) { for (int i = 0; i < n; i++) { C[i].alt.z = z[i]; C[i].alt.vz = vz[i]; C[i].alt.init = 1; } }
 void sil_force_armed(int n) { for (int i = 0; i < n; i++) { C[i].fsm.st = FSM_ARMED; C[i].fsm.t_state = 0; } }
+float sil_duty_scale(void) { return FC_DUTY_SCALE; }
+void sil_get_ck(int n, float *o) { for (int i = 0; i < n; i++) o[i] = C[i].c_k; }
+float sil_hover_duty(void) { return FC_HOVER_DUTY; }
+float sil_hover_vb(void) { return FC_HOVER_VB; }
 void sil_cmd(int n, const int *cmd) { for (int i = 0; i < n; i++) fc_command(&C[i], (fsm_cmd_t)cmd[i]); }
 void sil_step(int n, const float *a, const float *g, float dt, const unsigned char *bn, const float *bz, const float *bdt,
               const float *vb, float *u, unsigned char *st, unsigned char *ev, float *est) {
@@ -57,11 +61,13 @@ void sil_step(int n, const float *a, const float *g, float dt, const unsigned ch
 '''
 
 
-def build():
+def build(defines=None):
+    """defines：{'FC_HOVER_DUTY': '0.42f', …} 覆盖固件头文件里的默认值"""
     d = tempfile.mkdtemp(prefix='sil_fc_')
     c = os.path.join(d, 'wrap.c'); so = os.path.join(d, 'libfc.so')
     open(c, 'w').write(WRAP)
-    cmd = ['gcc', '-O2', '-shared', '-fPIC', '-std=c99', '-Wall', '-Wno-unused-function'] + sum([['-I', p] for p in INC], []) + [c, '-o', so, '-lm']
+    cmd = ['gcc', '-O2', '-shared', '-fPIC', '-std=c99', '-Wall', '-Wno-unused-function'] + [f'-D{k}={v}' for k, v in (defines or {}).items()] \
+        + sum([['-I', p] for p in INC], []) + [c, '-o', so, '-lm']
     subprocess.check_call(cmd)
     L = ctypes.CDLL(so)
     f32 = np.ctypeslib.ndpointer(dtype=np.float32, flags='C_CONTIGUOUS')
@@ -74,6 +80,9 @@ def build():
     L.sil_set_alt.argtypes = [ctypes.c_int, f32, f32]
     L.sil_cmd.argtypes = [ctypes.c_int, i32]
     L.sil_step.argtypes = [ctypes.c_int, f32, f32, ctypes.c_float, u8, f32, f32, f32, f32, u8, u8, f32]
+    L.sil_get_ck.argtypes = [ctypes.c_int, f32]
+    for fn in ('sil_duty_scale', 'sil_hover_duty', 'sil_hover_vb'):
+        getattr(L, fn).restype = ctypes.c_float
     return L
 
 
@@ -109,13 +118,33 @@ NOISE = {
 }
 
 
-def run(L, scen, noise, N, seed, T=30.0, mount_deg=None, u_max=1.0, soc=1.0, plant_tmax=None):
-    """u_max：与固件 motor_out_write() 同位置的油门上限（控制器不知道，只在写电机时截断）；soc：开局电量"""
+def run(L, scen, noise, N, seed, T=30.0, mount_deg=None, u_max=1.0, soc=1.0, plant_tmax=None,
+        plant_hover=None, plant_knee=None, vb_mode='true', plant_rint=None):
+    """u_max：与固件 motor_out_write() 同位置的油门上限（作用在真实占空比上）；soc：开局电量
+    被控对象（"真机"）推力曲线（Stage 31）：固件输出真实占空比 d = FC_DUTY_SCALE·u_cmd，
+      plant_hover=None：推力曲线与固件的假设完全一致（= 旧 SIL：模型推力 0.27 N 在控制器空间）；
+      plant_hover=x：真机在开局工作电压下的悬停占空比为 x（低油门 T ∝ (d·V)²）；
+      plant_knee=k：转速在高占空比变平，d_eff = k·tanh(d/k)（None = 不变平）；
+      vb_mode='offset'：电池读数 = 真实电压 − min(0.85, 3·d̄)（模拟实测"一转就掉 0.8 V"的测量偏差）；
+      plant_rint=r：电池 + 线路内阻 Ω（模拟"掉 0.8 V 是真实压降"，悬停 ~2.7 A 时 0.31 Ω ≈ 0.85 V）。"""
     rng = np.random.default_rng(seed)
     nz = dict(NOISE[noise]);
     if mount_deg is not None:
         nz['mount_deg'] = mount_deg
     p = YaoKunK10Params()
+    if plant_rint is not None:
+        p.batt_r_internal = plant_rint
+    kscale = float(L.sil_duty_scale())
+    gfun = (lambda d: d) if plant_knee is None else (lambda d: plant_knee * np.tanh(d / plant_knee))
+    if plant_hover is None and plant_tmax is None:
+        p.thrust_max_per_motor = p.thrust_max_per_motor / kscale ** 2; p._post()      # 与固件假设一致
+    elif plant_hover is not None:
+        W4 = p.mass * G / 4; vop = p.v_empty + (p.v_full - p.v_empty) * soc; tm = 1.0
+        for _ in range(5):                                       # 悬停工作电压（含内阻压降）与推力系数一起迭代
+            uh = gfun(plant_hover)
+            tm = W4 * (p.v_ref / (uh * vop)) ** 2
+            vop = p.v_empty + (p.v_full - p.v_empty) * soc - 4 * p.current_max_per_motor * uh ** 1.5 * p.batt_r_internal
+        p.thrust_max_per_motor = tm; p._post()
     if plant_tmax is not None:                                   # 真机推力与控制器模型不一致时的被控对象（控制器仍按 0.27 N）
         p.thrust_max_per_motor = plant_tmax; p._post()
     mg = None if nz['mgain'] == 0 else rng.uniform(1 - nz['mgain'], 1 + nz['mgain'], (N, 4))
@@ -184,6 +213,7 @@ def run(L, scen, noise, N, seed, T=30.0, mount_deg=None, u_max=1.0, soc=1.0, pla
     zmin = np.full(N, np.inf); vxy_hold_max = np.zeros(N); xy_land = np.full((N, 2), np.nan); ztrue_hold = [[] for _ in range(N)]
     prev_st = np.full(N, 1 if scen != 'takeoff' else 0); airborne = np.zeros(N, bool)
     estz_err = []
+    dhold = np.zeros(N); dhold_n = np.zeros(N); dpeak = np.zeros(N)
     zmax = np.full(N, -np.inf); sat_n = np.zeros(N); hold_n = np.zeros(N); umax_hold = np.zeros(N); vb_min = np.full(N, np.inf)
     for k in range(K):
         t = k * dt
@@ -192,7 +222,8 @@ def run(L, scen, noise, N, seed, T=30.0, mount_deg=None, u_max=1.0, soc=1.0, pla
                 L.sil_cmd(N, np.full(N, CMD['arm'], np.int32))
             if k == 500:
                 L.sil_cmd(N, np.full(N, CMD['takeoff'], np.int32))
-        dyn.step(np.minimum(u, u_max).astype(np.float64))
+        dcmd = np.minimum(u, u_max).astype(np.float64)
+        dyn.step(gfun(dcmd) if plant_hover is not None else dcmd)
         # 地面：弹簧阻尼 + 摩擦
         pen = -dyn.pos[:, 2]; m = pen > 0
         if m.any():
@@ -208,7 +239,8 @@ def run(L, scen, noise, N, seed, T=30.0, mount_deg=None, u_max=1.0, soc=1.0, pla
             bn[:] = 1; bz[:] = (dyn.pos[:, 2] + baro_err(t)).astype(np.float32)
         else:
             bn[:] = 0
-        vb[:] = (dyn.v_batt + rng.normal(0, 0.01, N)).astype(np.float32) if k % 100 == 0 else np.nan
+        vtrue = dyn.v_batt - (np.minimum(0.85, 3.0 * u.mean(axis=1)) if vb_mode == 'offset' else 0.0)
+        vb[:] = (vtrue + rng.normal(0, 0.01, N)).astype(np.float32) if k % 100 == 0 else np.nan
         L.sil_step(N, fi, wi, dt, bn, bz, bdt, vb, u, st, ev, est)
         # ---- 记录 ----
         on = st >= 2
@@ -224,8 +256,10 @@ def run(L, scen, noise, N, seed, T=30.0, mount_deg=None, u_max=1.0, soc=1.0, pla
         zmax = np.where(fl, np.maximum(zmax, dyn.pos[:, 2]), zmax)
         vb_min = np.where(fl, np.minimum(vb_min, dyn.v_batt), vb_min)
         hs = (st == 4) | (st == 2)
-        hold_n += hs; sat_n += hs & (u.max(axis=1) >= u_max - 1e-6)
+        hold_n += hs; sat_n += hs & (u.max(axis=1) >= min(u_max, kscale) * (1 - 1e-3))     # 顶到控制器上限（u_cmd = 1）或油门上限
         umax_hold = np.where(st == 4, np.maximum(umax_hold, u.max(axis=1)), umax_hold)
+        h4 = st == 4; dhold_n += h4; dhold += np.where(h4, u.mean(axis=1), 0.0)
+        dpeak = np.where(st >= 2, np.maximum(dpeak, u.max(axis=1)), dpeak)
         hold = st == 4
         vxy_hold_max = np.where(hold, np.maximum(vxy_hold_max, np.linalg.norm(dyn.vel[:, :2], axis=1)), vxy_hold_max)
         if k % 50 == 0 and hold.any():
@@ -250,7 +284,11 @@ def run(L, scen, noise, N, seed, T=30.0, mount_deg=None, u_max=1.0, soc=1.0, pla
     ev_hist = {}
     for e in ev_off[~np.isnan(t_off)]:
         ev_hist[EV[e]] = ev_hist.get(EV[e], 0) + 1
+    dhold = np.where(dhold_n > 0, dhold / np.maximum(dhold_n, 1), 0.0)
+    ck = np.zeros(N, np.float32); L.sil_get_ck(N, ck)
     res = dict(scenario=scen, noise=noise, mount_deg=nz['mount_deg'], N=N, seed=seed, u_max=float(u_max), soc=float(soc),
+               duty_scale=kscale, ck_med=float(np.median(ck)), ck_p10=float(np.percentile(ck, 10)), ck_p90=float(np.percentile(ck, 90)), plant_hover=plant_hover, plant_knee=plant_knee, vb_mode=vb_mode,
+               duty_hold_med=pct(np.where(dhold > 0, dhold, np.nan), 50), duty_peak_med=pct(np.where(dpeak > 0, dpeak, np.nan), 50),
                zmax_med=pct(np.where(np.isfinite(zmax), zmax, np.nan), 50), zmax_p90=pct(np.where(np.isfinite(zmax), zmax, np.nan), 90),
                zmax_max=float(np.nanmax(np.where(np.isfinite(zmax), zmax, np.nan))) if np.isfinite(zmax).any() else float('nan'),
                sat_frac_med=pct(sat_n / np.maximum(hold_n, 1), 50), sat_frac_p90=pct(sat_n / np.maximum(hold_n, 1), 90),

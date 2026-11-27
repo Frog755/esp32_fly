@@ -59,6 +59,7 @@ typedef struct {
     float q[4], w[3], k, anorm_g;
     float z, vz, ab, vbatt, z_target, thrust_frac;
     float u_cmd[4], out_sum;
+    float c_k, vb_ctrl;                           /* Stage 31：推力在线修正系数、控制用（静止）电压 */
     uint8_t st, mode, link_ok;
     float t_state;
     uint32_t ev_seq;                              /* 事件环：ev_ring[seq % 8] */
@@ -204,6 +205,7 @@ static void ctrl_task(void *arg)
         s_snap.st = (uint8_t)fc.fsm.st; s_snap.mode = fc.mode; s_snap.link_ok = (uint8_t)fc_link_ok(&fc); s_snap.t_state = fc.fsm.t_state;
         memcpy(s_snap.u_cmd, fc.u_cmd, sizeof(fc.u_cmd));
         s_snap.out_sum = out_sum;
+        s_snap.c_k = fc.c_k; s_snap.vb_ctrl = fc.vb_ctrl;
         if (fc.ev_seq != s_snap.ev_seq) {
             s_snap.ev_seq = fc.ev_seq;
             const int i = (int)(fc.ev_seq % 8u);
@@ -247,6 +249,8 @@ static void print_status(void)
     printf("STATUS period late_gt1500us %lu late_gt2000us %lu late_gt5000us %lu period_max_us %lu\n", (unsigned long)s.late15,
            (unsigned long)s.late20, (unsigned long)s.late50, (unsigned long)s.period_max_us);
     printf("STATUS link_ok %d\n", s.link_ok);
+    printf("STATUS thrust_map scale %.4f hover_duty %.3f at_vb %.2f adapt %d c_k %.3f vb_ctrl %.3f\n", (double)FC_DUTY_SCALE,
+           (double)FC_HOVER_DUTY, (double)FC_HOVER_VB, FC_THRUST_ADAPT, (double)s.c_k, (double)s.vb_ctrl);
     printf("STATUS blackbox boot %u slot %d n %lu frozen %d\n", (unsigned)s_bbw.boot, s_bbw.boot & 1, (unsigned long)s_bbw.n, s_bbw.frozen);
     printf("STATUS wifi %s ssid %s phones %d websockets %d hb_n %lu gap_max_ms %lu\n", w.started ? "on" : "off", w.ssid, w.n_sta, w.n_ws,
            (unsigned long)w.hb_n, (unsigned long)w.gap_all_ms);

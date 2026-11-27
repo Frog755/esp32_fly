@@ -250,12 +250,64 @@ static void test_core_link(void)
     CHECK(s_c.fsm.st == FSM_DISARMED && s_ev == FSM_EV_REFUSE_LINK, "上电后从没收到心跳 → 拒绝解锁（事件 %s）", FSM_EV_NAME[s_ev]);
 }
 
+/* ---------------- 5. 推力换算：静止电压保持 + 空中推力在线修正（Stage 31） ---------------- */
+static void core_run2(float sec, float az_g, float vb, float zb)
+{
+    const float a[3] = {0, 0, 9.81f * az_g}, w0[3] = {0, 0, 0};
+    int n = (int)(sec * 1000.0f + 0.5f);
+    for (int i = 0; i < n; i++, s_k++) {
+        if (s_k % 100 == 0) fc_link_beat(&s_c);
+        fc_step(&s_c, a, w0, 0.001f, 1, s_k % 20 == 0, zb, 0.02f, s_k % 100 == 0 ? vb : NAN);
+        if (s_c.ev_seq != s_seq) { s_seq = s_c.ev_seq; s_ev = s_c.ev_last; }
+    }
+}
+static float max_out(void) { float m = 0; for (int i = 0; i < 4; i++) m = s_c.u_out[i] > m ? s_c.u_out[i] : m; return m; }
+static void test_core_thrust(void)
+{
+    printf("[5] 推力换算：静止电压保持、贴地不修正、空中在线修正（换算系数 %.3f）\n", (double)FC_DUTY_SCALE);
+    const float a0[3] = {0, 0, 9.81f};
+    fc_init(&s_c, a0); s_k = 0; s_seq = 0; s_ev = 0;
+    core_run2(0.5f, 1.0f, 4.15f, 0.0f); fc_command(&s_c, FSM_CMD_ARM); core_run2(0.2f, 1.0f, 4.15f, 0.0f);
+    fc_command(&s_c, FSM_CMD_TAKEOFF); core_run2(0.3f, 1.0f, 3.30f, 0.0f);     /* 一转读数就掉到 3.3 V */
+    CHECK(s_c.fsm.st == FSM_TAKEOFF && fabsf(s_c.vb_ctrl - 4.15f) < 1e-3f, "通电后控制用电压保持通电前的 4.15 V（读数 %.2f V，控制用 %.2f V）",
+          (double)s_c.vbatt, (double)s_c.vb_ctrl);
+    float omax = 0; for (int i = 0; i < 1500; i++) { core_run2(0.001f, 1.0f, 3.30f, 0.0f); if (max_out() > omax) omax = max_out(); }
+    CHECK(s_c.c_k == 1.0f && !s_c.adapting, "贴地起飞（高度不升、比力 1 g）不做在线修正（c_k %.3f）", (double)s_c.c_k);
+    CHECK(omax <= FC_DUTY_SCALE * 1.0001f, "真实占空比不超过 换算系数 × 1（最大 %.3f）", (double)omax);
+    core_run2(5.0f, 1.0f, 3.30f, 0.0f);
+    CHECK(s_c.fsm.st == FSM_LAND || s_c.fsm.st == FSM_DISARMED, "贴地 6 s 没离地 → 起飞超时 → 降落（状态 %s）", FSM_STATE_NAME[s_c.fsm.st]);
+    /* 空中闭环：真实推力 = s0 × c_k² × 控制器以为的推力（真机推力曲线与假设差一个常数 s0），竖直一维动力学 */
+    const float s0s[3] = {1.25f, 0.80f, 3.0f};
+    for (int t = 0; t < 3; t++) {
+        const float s0 = s0s[t];
+        fc_init(&s_c, a0); s_k = 0; s_seq = 0; s_ev = 0;
+        core_run2(0.5f, 1.0f, 4.15f, 1.0f);
+        s_c.fsm.st = FSM_HOLD; s_c.fsm.t_state = 0; s_c.fsm.z_target = 1.0f; s_c.fsm.z_goal = 1.0f;
+        float z = 1.0f, vz = 0.0f, zmin = 1.0f, zmax = 1.0f;
+        for (int i = 0; i < 6000; i++, s_k++) {
+            if (s_k % 100 == 0) fc_link_beat(&s_c);
+            if (i % 1000 == 0) s_c.fsm.t_state = 0.0f;                       /* 不让 5 s 自动降落打断测试 */
+            float tr = 0; for (int j = 0; j < 4; j++) tr += s_c.u_out[j] * s_c.u_out[j];
+            const float azg = s0 * tr / (4.0f * (FC_DUTY_SCALE * FC_MODEL_HOVER_U * EXP9_VREF / 4.15f) * (FC_DUTY_SCALE * FC_MODEL_HOVER_U * EXP9_VREF / 4.15f));
+            vz += (azg - 1.0f) * 9.81f * 0.001f; z += vz * 0.001f;
+            if (i > 3000) { zmin = z < zmin ? z : zmin; zmax = z > zmax ? z : zmax; }
+            const float a[3] = {0, 0, 9.81f * azg}, w0[3] = {0, 0, 0};
+            fc_step(&s_c, a, w0, 0.001f, 1, s_k % 20 == 0, z, 0.02f, s_k % 100 == 0 ? 4.15f : NAN);
+        }
+        const float want = 1.0f / sqrtf(s0), wc = want < FC_ADAPT_MIN ? FC_ADAPT_MIN : (want > FC_ADAPT_MAX ? FC_ADAPT_MAX : want);
+        if (t < 2) CHECK(fabsf(s_c.c_k - wc) < 0.03f && zmax - zmin < 0.3f, "空中真实推力 = 以为的 %.2f 倍 → 6 s 后 c_k %.3f（应 %.3f），后 3 s 高度波动 %.2f m",
+                         (double)s0, (double)s_c.c_k, (double)wc, (double)(zmax - zmin));
+        else       CHECK(fabsf(s_c.c_k - FC_ADAPT_MIN) < 1e-4f, "推力大 3 倍（超出修正范围）→ c_k 停在下限 %.2f（%.3f）", (double)FC_ADAPT_MIN, (double)s_c.c_k);
+    }
+}
+
 int main(void)
 {
     test_controller();
     test_fsm();
     test_alt();
     test_core_link();
+    test_core_thrust();
     printf("\n通过 %d / %d\n", n_pass, n_pass + n_fail);
     return n_fail ? 1 : 0;
 }
