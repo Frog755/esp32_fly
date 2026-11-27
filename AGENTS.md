@@ -10,6 +10,7 @@
 - 控制器是**手写规则控制器 v9**（bang-bang 翻转 + PD 悬停，"训练" = 物理分析 + 512 通道仿真扫参）。**不是 RL、不是 MPC**——RL 路线已被项目自身否定（见 `note.md`、`RL/legacy/`），不要再提议用 RL / PPO 训练。
 - 链路：Python 仿真（`RL/env/vec_expert9_env.py`）→ 纯 C（`code/connection_test/main/recovery_expert9.h` + `mahony_gated.h`）→ 正式飞控固件 `code/flight_v9/`。
 - ⚠ **推力模型未标定，不确定 1~5 倍**（用户看到 40% 有一点离地，但也可能是振动跳动；公开数据与原作者说法支持现模型）。SIL：真机推力 ≥ 3.3 倍模型时 v9 推力下限 0.3·mg 已大于重力 → 降不下来、飞走。**测出推力前装桨不能真飞**。
+- ⚠ **供电疑似接触不良**：插拔 USB 有时会让飞机断电（用户 11-27），通电时电池读数稳定掉 ~0.8 V；飞行前要检查电池焊点 / 插头。
 - 现状：板上默认是**干跑版**（电机驱动未编译进固件，电机不会转）；手机无线控制已完成并经用户手机实测；
   电机驱动版 `build_mc`（油门上限 6%）拆桨台架 3/3 通过（Stage 27，11-24，**本飞控第一次真转电机**）；**从未装桨、从未起飞**。
 
@@ -46,7 +47,7 @@ code/flight_v9/      ★ 正式飞控（ESP-IDF v6.1）——见 code/flight_v9/
   test/                主机单测 host_test.c（62 项）+ 网页脚本测试 page_test.js
   dryrun.sh / level_trim.sh   用户自己运行的检查 / 标定脚本
   motor_bench.sh       Stage 27 拆桨电机台架（用户运行：烧 build_mc → 3 步台架 → 烧回干跑版）
-  vib_check.sh         Stage 30 装桨振动检查（用户运行：烧 build_vib 上限 0.30 → 拔 USB 手机起飞 → 读黑匣子分析 → 烧回干跑版）
+  vib_check.sh         Stage 30 装桨振动检查（用户运行：烧 build_vib 上限 0.30 → USB 不拔（默认）手机起飞 → 读黑匣子分析 → 烧回干跑版）
   audio_rpm.py         Stage 31 电脑麦克风录电机声音 → 转速 → 推力量级（vib_check 默认录音；--selftest 自检）
   FIRST_FLIGHT.md      Stage 29 首飞方案：油门上限 0.95 的依据、检查清单、飞行步骤
   main/acc_lpf.h       Stage 30 加计 10 Hz 低通，只喂门控 Mahony（装桨振动下门控选择偏差 → 姿态误差 7°，回放见 test/vib_replay.c）

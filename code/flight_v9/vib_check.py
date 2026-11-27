@@ -6,13 +6,14 @@
   按推力 ∝ 油门² 粗估，30% ≈ 重力的 55~60%，不会离地。固件需含加计低通（acc_lpf，Stage 30 修复），脚本烧前核对。
 流程：
   1. 输入「已装桨已系留」→ 核对镜像后烧 build_vib（u_max=0.30、含 acc_lpf）→ 开机核对
-  2. **拔掉 USB（电池别拔）**——电机 EMI 会让插着的 USB 复位，进而让芯片复位
+  2. 默认 **USB 不拔**（2026-11-27 用户反馈插拔 USB 有时会让飞机断电，疑似焊点问题）：脚本通过串口实时看状态、自动检测停转；
+     电机干扰万一让 USB 复位 → 芯片复位 → 电机停（贴地 30%，安全），黑匣子上一槽保留复位前的数据。`--unplug` 用旧流程（拔 USB）。
   3. 手机：按住解锁 → 按住起飞 → 电机 30% 转约 6 s（应一直贴地）→ 自动降落 → 约 1~2 s 后自己停
-  4. 停稳后插回 USB，按回车 → 读出黑匣子 → 分析振动对姿态估计的影响 → 默认烧回干跑版
+  4. 停稳后（拔 USB 流程：插回 USB 按回车）→ 读出黑匣子 → 分析振动对姿态估计的影响 → 默认烧回干跑版
 判据（飞机贴在地上不动，真实姿态不变，所以"电机转时的姿态估计 − 转之前"就是振动造成的误差）：
   姿态偏差 < 3° 正常；3~8° 需要处理振动后再飞；> 8° 不能飞。另报门控关闭占比、振动、陀螺抖动、偏航漂移。
 Stage 31：同时用电脑麦克风录电机声音（默认开启，--no-audio 关闭）→ 测转速 → 估推力量级（audio_rpm.py）。
-  电脑放在飞机 1 m 以内；拔掉 USB 不影响录音。
+  电脑放在飞机 1 m 以内（USB 线够长即可）。
 输出：blackbox/vib_<时间>.json + 原始读出 + CSV + 录音。把终端最后的结果发给我。
 用法：./vib_check.sh [串口]   --no-flash 跳过烧录   --analyse-file X.txt 只离线分析一份已保存的读出
 """
@@ -28,6 +29,7 @@ except Exception:
 
 args = [a for a in sys.argv[1:] if not a.startswith('--')]
 PORT = args[0] if args and not args[0].endswith('.txt') else '/dev/ttyACM0'
+STATE = ['DISARMED', 'ARMED', 'TAKEOFF', 'RECOVER', 'HOLD', 'LAND']
 U_MAX = 0.30
 TAG = 'MOTOR OUTPUT u_max=0.30f, acc_lpf=10.0f'
 
@@ -90,6 +92,42 @@ def open_and_wait_boot(sec=25):
         if len(p) >= 2 and p[0] == 'STATUS':
             st[p[1]] = ' '.join(p[2:])
     return ser, st
+
+
+# ---------------------------------------------------------------- USB 不拔时的实时监视
+class UsbWatch:
+    """逐行喂串口输出，判断：电机开始转（on）、停转且稳定（done）、芯片复位（resets）。只读，不往板子发心跳——链路只来自手机。"""
+    def __init__(self):
+        self.on_seen = False; self.off_since = None; self.resets = 0; self.reset_reasons = []
+        self.last = None; self.events = []; self.done = False; self.vb_min = None; self.out_max = 0.0; self.st = None
+
+    def feed(self, line, now):
+        p = line.strip().split()
+        if not p:
+            return None
+        if p[0] == 'F' and len(p) == 19:
+            try:
+                st, out, vb = int(float(p[2])), float(p[16]), float(p[10])
+                roll, pitch = float(p[4]), float(p[5])
+            except ValueError:
+                return None
+            self.st = st; self.last = dict(st=st, out=out, vb=vb, roll=roll, pitch=pitch)
+            if out > 1e-6 or st >= 2:
+                self.on_seen = True; self.off_since = None
+                self.out_max = max(self.out_max, out); self.vb_min = vb if self.vb_min is None else min(self.vb_min, vb)
+            elif self.on_seen:
+                self.off_since = now if self.off_since is None else self.off_since
+                if now - self.off_since > 1.5:
+                    self.done = True
+            return 'F'
+        if p[0] == 'EVT':
+            self.events.append(line.strip()); return 'EVT'
+        if p[0] == 'BOOT' and len(p) >= 3 and p[1] == 'reset_reason':
+            self.resets += 1; self.reset_reasons.append(p[2])
+            if self.on_seen:
+                self.done = True          # 通电中复位：电机已停（开机先锁低引脚），这次就到这里
+            return 'RESET'
+        return None
 
 
 # ---------------------------------------------------------------- 分析（纯函数，可离线跑）
@@ -203,7 +241,9 @@ def main():
             print(f'   ⚠ 电池 {st.get("vbatt")} V 偏低（< 4.0 V），建议先充电。')
     except ValueError:
         pass
-    ser.close()
+    keep_usb = '--unplug' not in sys.argv
+    if not keep_usb:
+        ser.close()
     rec, wav = None, None
     if audio_rpm and '--no-audio' not in sys.argv:
         os.makedirs(os.path.join(HERE, 'blackbox'), exist_ok=True)
@@ -215,19 +255,77 @@ def main():
             print(f'   ⚠ 录音没启动（{e}），继续，只做振动分析')
             rec, wav = None, None
     print('\n' + '-' * 64)
-    print('现在按顺序做：')
-    print('  1) **拔掉 USB 线**（电池不要拔！拔电池黑匣子就没了）')
-    print('  2) 飞机放回系留点、放平，人退到 1 m 外')
-    print('  3) 手机连热点、打开 http://192.168.4.1：「按住解锁」→「按住起飞」')
-    print(f'     电机以 {U_MAX:.0%} 转约 6 秒 → 自动降落 → 再约 1~2 秒自己停；飞机应一直贴在地上；异常随时按「急停」')
-    print('  4) 电机停稳后，**插回 USB**')
-    input('做完第 4 步按回车 ')
-    if rec:
-        print(f'   🎙 录音结束（{rec.stop():.0f} s）')
-    print('   等板子出数据……')
-    ser, st2 = open_and_wait_boot(30)
-    print(f'   状态 {st2.get("state")}  黑匣子 {st2.get("blackbox")}')
-    ser.close(); time.sleep(0.3)
+    watch = None
+    if keep_usb:
+        print('现在按顺序做（**USB 不用拔**）：')
+        print('  1) 飞机放回系留点、放平，人退到 1 m 外；USB 线理顺，别靠近桨')
+        print('  2) 手机连热点、打开 http://192.168.4.1：「按住解锁」→「按住起飞」')
+        print(f'     电机以 {U_MAX:.0%} 转约 6 秒 → 自动降落 → 再约 1~2 秒自己停；飞机应一直贴在地上')
+        print('  3) 什么都不用按：脚本看到电机停稳后自动读黑匣子')
+        print('  异常时：手机「急停」，或在这里按 Ctrl+C（脚本通过串口急停）\n')
+        watch = UsbWatch(); buf = ''; t0 = time.time(); t_print = 0.0
+        try:
+            while not watch.done and time.time() - t0 < 180:
+                try:
+                    data = ser.read(4096)
+                except (serial.SerialException, OSError):
+                    print('\n   ⚠ 串口断开（多半是电机干扰让 USB 复位）——等它恢复……', flush=True)
+                    try:
+                        ser.close()
+                    except Exception:
+                        pass
+                    if not wait_port(20):
+                        print('   ✗ 20 s 内串口没回来。电机应已因芯片复位停转；请检查飞机，再插拔 USB 后用 --no-flash 重跑读数'); break
+                    time.sleep(0.5); ser = serial.Serial(PORT, 115200, timeout=0.1); watch.resets += 1; watch.reset_reasons.append('serial_lost')
+                    if watch.on_seen:
+                        watch.done = True
+                    continue
+                buf += data.decode('utf-8', 'replace')
+                while '\n' in buf:
+                    ln, buf = buf.split('\n', 1)
+                    k = watch.feed(ln, time.time())
+                    if k == 'EVT':
+                        print('\n   ' + ln.strip(), flush=True)
+                    elif k == 'RESET':
+                        print(f'\n   ⚠ 板子重新开机（复位原因 {watch.reset_reasons[-1]}）'
+                              + ('——电机已停；黑匣子上一槽保留了复位前的数据' if watch.on_seen else ''), flush=True)
+                if watch.last and time.time() - t_print > 1.0:
+                    L = watch.last; t_print = time.time()
+                    print(f'\r   状态 {STATE[L["st"]] if L["st"] < 6 else L["st"]:<8} 输出 {L["out"]:.2f}  电池 {L["vb"]:.2f} V  '
+                          f'roll {L["roll"]:+5.1f}° pitch {L["pitch"]:+5.1f}°   ', end='', flush=True)
+                if not watch.on_seen and time.time() - t0 > 120:
+                    print('\n   120 s 内电机没通电（手机上解锁 + 起飞了吗？）'); break
+        except KeyboardInterrupt:
+            for _ in range(3):
+                try:
+                    ser.write(b' '); time.sleep(0.02)
+                except Exception:
+                    pass
+            print('\n   已通过串口急停')
+        print()
+        if rec:
+            print(f'   🎙 录音结束（{rec.stop():.0f} s）')
+        time.sleep(1.0)
+        try:
+            ser.close()
+        except Exception:
+            pass
+        if watch.resets and watch.on_seen:
+            print('   等板子重新开机完成……'); s2, _ = open_and_wait_boot(30); s2.close()
+    else:
+        print('现在按顺序做：')
+        print('  1) **拔掉 USB 线**（电池不要拔！拔电池黑匣子就没了）')
+        print('  2) 飞机放回系留点、放平，人退到 1 m 外')
+        print('  3) 手机连热点、打开 http://192.168.4.1：「按住解锁」→「按住起飞」')
+        print(f'     电机以 {U_MAX:.0%} 转约 6 秒 → 自动降落 → 再约 1~2 秒自己停；飞机应一直贴在地上；异常随时按「急停」')
+        print('  4) 电机停稳后，**插回 USB**')
+        input('做完第 4 步按回车 ')
+        if rec:
+            print(f'   🎙 录音结束（{rec.stop():.0f} s）')
+        print('   等板子出数据……')
+        ser, st2 = open_and_wait_boot(30)
+        print(f'   状态 {st2.get("state")}  黑匣子 {st2.get("blackbox")}')
+        ser.close(); time.sleep(0.3)
     lines, slots, nref = bb_read.read_serial(PORT)
     od = os.path.join(HERE, 'blackbox'); os.makedirs(od, exist_ok=True)
     tag = time.strftime('%Y%m%d_%H%M%S')
@@ -238,6 +336,10 @@ def main():
     r = analyse(slots)
     print('\n================ 振动检查结果 ================')
     report(r)
+    if watch is not None:
+        r['usb_kept'] = True; r['usb_resets'] = watch.resets; r['usb_reset_reasons'] = watch.reset_reasons
+        print(f'   【USB 没拔】通电期间芯片复位 {watch.resets} 次' + (f'（{", ".join(watch.reset_reasons)}）' if watch.resets else '')
+              + (f'；串口看到电池最低 {watch.vb_min:.2f} V' if watch.vb_min is not None else ''))
     if wav and os.path.exists(wav) and audio_rpm:
         print('\n================ 电机转速（录音）================')
         csvs = [os.path.join(od, f'vib_{tag}_slot{r["slot"]}_boot{r["boot"]}.csv')] if r.get('found') else []
