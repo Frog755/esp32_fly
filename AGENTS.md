@@ -17,7 +17,7 @@
 ## 2. 安全规则（最重要）
 
 1. **不得自行让电机转起来。** `FLIGHT_MOTOR_OUTPUT` 默认 0（不编译任何 LEDC 代码，上电即锁低 GPIO16/6/5/15）。改成 1、烧录带电机驱动的固件、或任何会让电机转的测试，都必须先得到用户明确同意，并确认**已拆桨**（首次）或**系留 + 空旷场地**（装桨）。
-   电机驱动版必须显式给油门上限 `-DFLIGHT_U_MAX=<0~1>`（缺了编译失败）；电机版固件由用户运行脚本自己烧（`motor_bench.sh` 要求输入「已拆桨」、`vib_check.sh` 要求「已装桨已系留」），助手不要直接烧 `build_mc` / `build_vib`。固件名含油门上限原文（`u_max=0.40f`），脚本烧前核对。
+   电机驱动版必须显式给油门上限 `-DFLIGHT_U_MAX=<0~1>`（缺了编译失败）；电机版固件由用户运行脚本自己烧（`motor_bench.sh` 要求输入「已拆桨」、`vib_check.sh` 要求「已装桨已系留」、`first_flight.sh` 要求逐项确认清单 +「系留首飞」），助手不要直接烧 `build_mc` / `build_vib` / `build_ff`。固件名含油门上限原文（`u_max=0.40f`），脚本烧前核对。
 2. 飞机常年**插着电池**（4.1~4.2 V），不是"没电所以安全"。
 3. 空中出问题一律**转降落**，只有触地 / 撞击 / 估计器失效 / 急停才停桨（`flight_fsm.h`）。新增保护逻辑时保持这一原则。
 4. 不要依赖 USB 串口做飞行控制：电机 12% 油门时 EMI 会触发 `ESP_RST_USB`（芯片复位）。飞行控制走手机 Wi-Fi（`web_link.c`），心跳超时 0.6 s → 降落。
@@ -49,7 +49,8 @@ code/flight_v9/      ★ 正式飞控（ESP-IDF v6.1）——见 code/flight_v9/
   motor_bench.sh       Stage 27 拆桨电机台架（用户运行：烧 build_mc → 3 步台架 → 烧回干跑版）
   vib_check.sh         Stage 30 装桨振动检查（用户运行：烧 build_vib 上限 0.30 → USB 不拔（默认）手机起飞 → 读黑匣子分析 → 烧回干跑版）
   audio_rpm.py         Stage 31 电脑麦克风录电机声音 → 转速 → 推力量级（vib_check 默认录音；--selftest 自检）
-  FIRST_FLIGHT.md      Stage 29 首飞方案：油门上限 0.95 的依据、检查清单、飞行步骤
+  first_flight.sh      Stage 33 系留首飞（用户运行：检查清单 → 烧 build_ff 上限 0.70 → 拔 USB 手机起飞 → 读黑匣子 analyse_flight → 烧回干跑版）
+  FIRST_FLIGHT.md      首飞方案：推力换算、上限 0.70 的依据（SIL）、检查清单、飞行步骤
   main/acc_lpf.h       Stage 30 加计 10 Hz 低通，只喂门控 Mahony（装桨振动下门控选择偏差 → 姿态误差 7°，回放见 test/vib_replay.c）
   main/blackbox.h      Stage 28 机载黑匣子（PSRAM noinit，复位保留、断电丢失）；bb_read.sh 读出，bb_selftest.py 上板自检（干跑版）
 code/sensor_test/    只读传感器固件 + 六面标定 calib.sh + 姿态检查 attitude.sh（imu_calib.h 在这里）

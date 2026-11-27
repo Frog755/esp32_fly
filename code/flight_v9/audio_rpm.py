@@ -65,7 +65,7 @@ def load(path):
     return x - x.mean(), fs
 
 
-def analyse_external(path, u, vb=None, bb_csv=None, python='/usr/bin/python3'):
+def analyse_external(path, u, vb=None, bb_csv=None, python='/usr/bin/python3', verdict=True):
     """在带 numpy 的系统 Python 里跑分析（vib_check 用 ESP-IDF 的 Python 运行，那边没有 numpy）；打印报告，返回结果 dict"""
     out = path + '.json'
     cmd = [python, os.path.abspath(__file__), '--analyse', path, '--u', str(u), '--json-out', out]
@@ -73,6 +73,8 @@ def analyse_external(path, u, vb=None, bb_csv=None, python='/usr/bin/python3'):
         cmd += ['--vb', f'{vb:.3f}']
     if bb_csv:
         cmd += ['--bb', bb_csv]
+    if not verdict:
+        cmd.append('--no-verdict')
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
     print(r.stdout.rstrip())
     if r.returncode != 0:
@@ -254,6 +256,9 @@ def report(r):
     print('   电机带来的新谱线（频率 Hz / 突出 dB）：' + '  '.join(f'{p[0]:.0f}/{p[1]:+.0f}' for p in r['peaks']))
     print(f'   谐波梳：转速 f_r ≈ {r["f_rot"]:.1f} 转/秒（{r["rpm"]:.0f} rpm），叶片通过频率 {r["f_bpf"]:.0f} Hz；'
           f'1~8 次谐波突出 ' + ' / '.join(f'{v:.0f}' for v in r['comb_vals']) + ' dB')
+    if r.get('no_verdict'):
+        print(f'   按 Ct={CT}（±30%）：单电机推力约 {r["T_motor"] * 1000 / G:.0f} g，= 悬停所需的 {r["thrust_frac"] * 100:.0f}%（悬停时应接近 100%）')
+        return
     print(f'   仿真模型在 {r["u"]:.0%} 油门' + (f'、{r["vb"]:.2f} V' if r['vb'] else '') + f' 下预测转速 {r["n_sim"]:.0f} 转/秒 → 实测 / 仿真 = {r["speed_ratio_vs_sim"]:.2f} 倍'
           f'（推力约 {r["thrust_ratio_vs_sim"]:.1f} 倍）')
     print(f'   按 Ct={CT}（±30%）：单电机推力约 {r["T_motor"] * 1000 / G:.0f} g，= 悬停所需的 {r["thrust_frac"] * 100:.0f}%；'
@@ -325,7 +330,10 @@ if __name__ == '__main__':
         u = float(a[a.index('--u') + 1]) if '--u' in a else 0.30
         vb = float(a[a.index('--vb') + 1]) if '--vb' in a else None
         bb = a[a.index('--bb') + 1] if '--bb' in a else None
-        r = analyse(path, u, vb, bb); report(r)
+        r = analyse(path, u, vb, bb)
+        if '--no-verdict' in a:
+            r['no_verdict'] = True
+        report(r)
         if '--json-out' in a:
             json.dump(r, open(a[a.index('--json-out') + 1], 'w'), ensure_ascii=False, indent=1, default=lambda o: o.item() if hasattr(o, 'item') else str(o))
     else:

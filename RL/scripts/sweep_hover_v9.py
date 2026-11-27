@@ -22,7 +22,15 @@ SCENS = [('takeoff', 'nominal'), ('takeoff', 'pessimistic'), ('drop', 'nominal')
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--quick', action='store_true')
     ap.add_argument('--out', default=os.path.join(S.ROOT, 'RL', 'results', 'stage31', 'sweep_hover_v2.json'))
+    ap.add_argument('--umax', type=float, default=0.60, help='真实占空比上限（v2 结果用的是 0.60）')
+    ap.add_argument('--hovers', default='', help='逗号分隔，覆盖默认真机悬停列表')
+    ap.add_argument('--only-adapt', action='store_true', help='只跑"修正开"')
     a = ap.parse_args()
+    global HOVERS, BUILDS
+    if a.hovers:
+        HOVERS = [float(x) for x in a.hovers.split(',')]
+    if a.only_adapt:
+        BUILDS = BUILDS[:1]
     N = 32 if a.quick else 128
     out = []
     for b, defs in BUILDS:
@@ -32,7 +40,7 @@ def main():
             for h in HOVERS:
                 for i, (sc, nz) in enumerate(SCENS):
                     t0 = time.time()
-                    r = S.run(L, sc, nz, N, seed=500 + i, u_max=0.60, plant_hover=h, **kw)
+                    r = S.run(L, sc, nz, N, seed=500 + i, u_max=a.umax, plant_hover=h, **kw)
                     r.update(belief=b, mode=mname, wall_s=round(time.time() - t0, 1)); out.append(r)
                     print(f"{b} {mname:<12} 真机悬停 {h:.2f}  {sc:<8}{nz:<12} 成功 {r['ok_rate']*100:5.1f}%  坠地 {r['crash_rate']*100:4.1f}%  "
                           f"没起来 {(1 - r['hold_reached'])*100:5.1f}%  最高 中位 {r['zmax_med']:.2f}/最大 {r['zmax_max']:.2f} m  "
